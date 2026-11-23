@@ -12,6 +12,10 @@
 \captionsetup{font=small,labelfont=bf}
 \newcommand{\mc}{m_c}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\cU}{\mathcal{U}}
+\newcommand{\nrm}[2]{\lVert #1\rVert_{#2}}
+\newcommand{\Dm}{\Delta m}
 
 \title{Why does rewording flip a refusal?\\A perturbation analysis of Gemma-2-2b-it}
 \author{[author]}
@@ -32,64 +36,274 @@ The starting point is an analogy with perturbation theory. A transformer applies
 This suggests two measurements and one test.
 
 \begin{description}
-\item[Amplification.] Add a perturbation to the state at some layer, follow it to the last layer, and compare its relative size at the end with its relative size at the start. Do the same for the difference between two real wordings.
-\item[Linear response.] Compute the gradient of the output with respect to the state, and check whether the gradient times the difference in state between two wordings gives the change in the output.
-\item[The test.] Predict, from one prompt alone, how likely a rewording is to flip its outcome. Let $m$ be a scalar computed from the output, $\mc$ the threshold that separates refusing from answering, $g$ the gradient of $m$ with respect to the state, and $\Sigma$ the covariance of the displacements that rewordings cause in the state. The predicted spread of $m$ under rewording is
-\begin{equation}
-\sigma = \sqrt{g^{\mathsf T}\,\Sigma\, g},
-\label{eq:sigma}
-\end{equation}
-and the predicted flip probability is
-\begin{equation}
-P_{\rm flip} = \Phi\!\left(-\frac{|m-\mc|}{\sigma}\right),
-\label{eq:pflip}
-\end{equation}
-with $\Phi$ the standard normal distribution function and no fitted parameter. The test was fixed in advance to count only if this beats the distance $|m-\mc|$ alone on prompts that were held out when $\Sigma$ was estimated.
+\item[Amplification.] Add a perturbation to the state at some layer, follow it to the last layer, and compare its relative size at the end with its relative size at the start. Do the same for the difference between two real wordings (Section~\ref{sec:gain}).
+\item[Linear response.] Compute the gradient of the output with respect to the state, and check whether the gradient times the difference in state between two wordings gives the change in the output (Section~\ref{sec:linresp}).
+\item[The test.] Predict, from one prompt alone, how likely a rewording is to flip its outcome, using the gradient and the statistics of the displacements that rewordings cause in other prompts (Section~\ref{sec:testdef}). The test was fixed in advance to count only if this beats the prompt's distance from the refusal threshold alone.
 \end{description}
 
 A feature-level version of the same description, in terms of interpretable dictionary features, was planned and could not be carried out (Section~\ref{sec:features}).
 
-\section{Setup}
+\section{Definitions and methods}
 \label{sec:setup}
 
-\paragraph{Model.} \code{google/gemma-2-2b-it}, the 2-billion-parameter chat model, with 26 layers and a state vector of 2{,}304 numbers per token (the residual stream). All runs are in 32-bit floating point on one laptop. ``Layer $L$'' means the state after block $L$, with $L$ from 0 to 25.
+This section defines every quantity used in the results. Readers who want the findings first can go to Section~\ref{sec:results} and return here for the definitions.
 
-\paragraph{Prompt format.} Each prompt is one user turn in the model's chat template with no system prompt. The user's text is followed by five fixed formatting tokens, the \emph{template positions}. The model's first output token is computed from the state at the last of them. These five are the only positions aligned between prompts of different length.
+\subsection{Model, positions and notation}
+\label{sec:notation}
 
-\paragraph{Output scalar.} $m$ is the log-odds that the first generated token is ``I'', as in ``I cannot''. The threshold $\mc=-0.23$ best separates refused from answered completions, and the transition between the two has a width of about 0.8 in $m$.
+The model is \code{google/gemma-2-2b-it}, the 2-billion-parameter chat model. All runs are in 32-bit floating point on one laptop.
 
-\paragraph{Ground truth.} A completion of at most 48 tokens is generated greedily and labelled refused, answered or unclear by a rule-based judge. $m$ is a proxy for this label and is calibrated against it (Section~\ref{sec:scalar}).
+A prompt $x$ is turned into a sequence of $T$ tokens. The model keeps one state vector per token and updates it in 26 layers. We write
+\begin{equation}
+h_\ell(t)\in\mathbb{R}^d,\qquad d=2304,\qquad t=1,\dots,T,\qquad \ell=-1,0,1,\dots,25,
+\end{equation}
+for the state at token position $t$ after layer $\ell$, with $\ell=-1$ for the token embeddings before any layer. Each layer adds to the state, $h_\ell=h_{\ell-1}+F_\ell(h_{\ell-1})$. The update $F_\ell$ has two parts. \emph{Attention} moves information between positions, and only forwards: the state at position $t$ can read from positions $t'\le t$. It is carried out by 8 parallel \emph{attention heads} per layer, 208 in all. The second part acts on each position separately. The probabilities of the first output token are computed from the single vector $h_{25}(T)$.
 
-\paragraph{Prompts.} A pool of 5{,}311 prompts was built from six public benchmarks: AdvBench \cite{advbench}, HarmBench \cite{harmbench}, JailbreakBench \cite{jbb}, OR-Bench \cite{orbench}, XSTest \cite{xstest} and Alpaca \cite{alpaca}. From it, 120 prompts were chosen to cover eight ranges of distance from the threshold, 15 in each, four on the answering side and four on the refusing side.
+Each prompt is one user turn in the model's chat template, with no system prompt. Its tokens fall into three groups:
+\begin{itemize}
+\item four fixed tokens that open the turn, identical in every prompt and never perturbed;
+\item the user's text, at positions we call $\cU$ (a median of 14 tokens);
+\item five fixed tokens that close the turn and open the model's reply, the \emph{template positions} $\cT$.
+\end{itemize}
+We write $S=\cU\cup\cT$. Because the template tokens are the same in every prompt, the five positions in $\cT$ are the only ones that can be compared between prompts of different length.
 
-\paragraph{Rewordings.} Each of the 120 prompts has 20 rewordings of four kinds, five of each (Table~\ref{tab:kinds}). This gives 2{,}520 prompts and 2{,}400 pairs of an original and a rewording. A pair counts as a flip when $m$ for the rewording is on the other side of $\mc$.
+For a set of positions $P$ and a quantity $v$ with one vector per position, the norm over $P$ is
+\begin{equation}
+\nrm{v}{P}=\Bigl(\sum_{t\in P}\lVert v(t)\rVert^2\Bigr)^{1/2},
+\label{eq:norm}
+\end{equation}
+the Euclidean norm of the vectors at those positions stacked into one long vector. A dot product over $P$ is defined in the same way, $a\cdot b=\sum_{t\in P}a(t)\cdot b(t)$.
+
+\subsection{The output scalar and the outcome}
+\label{sec:mdef}
+
+Let $p_{\rm I}(x)$ be the probability the model assigns to ``I'' as its first output token, as in ``I cannot''. The output scalar is its log-odds,
+\begin{equation}
+m(x)=\ln\frac{p_{\rm I}(x)}{1-p_{\rm I}(x)} .
+\label{eq:m}
+\end{equation}
+So $m=0$ means $p_{\rm I}=1/2$, and one unit of $m$ multiplies the odds by $e$.
+
+The \emph{outcome} is what the model writes. A completion of at most 48 tokens is generated greedily (always taking the most probable token) and labelled refused, answered or unclear by a rule-based judge. $m$ is a proxy for this label, and three numbers describe how good a proxy it is.
+\begin{itemize}
+\item The \emph{ranking probability} (the area under the ROC curve): the probability that a randomly chosen refused prompt has a larger $m$ than a randomly chosen answered one. It is 1 for a perfect proxy and $1/2$ for a useless one.
+\item The \emph{threshold} $\mc$: the value of $m$ that best separates the two labels. It maximizes the average of two fractions, the refused prompts with $m>\mc$ and the answered prompts with $m\le\mc$. The result is $\mc=-0.23$, which corresponds to $p_{\rm I}=0.44$.
+\item The \emph{width} $s$ of the transition, from a logistic curve fitted by maximum likelihood to the labels of 1{,}085 prompts,
+\begin{equation}
+\Pr(\text{refused}\mid m)=\frac{1}{1+\exp[-(m-m_0)/s]},\qquad m_0=-0.42,\quad s=0.80 .
+\label{eq:logistic}
+\end{equation}
+The fitted fraction refused rises from 27\% to 73\% as $m$ goes from $m_0-s$ to $m_0+s$.
+\end{itemize}
+The curve~(\ref{eq:logistic}) is used only to calibrate $m$ against the judged label. It plays no part in the flip test of Section~\ref{sec:testdef}, where a flip is defined on $m$ itself.
+
+\subsection{Prompts, rewordings and flips}
+\label{sec:prompts}
+
+A pool of 5{,}311 prompts was built from six public benchmarks: AdvBench \cite{advbench}, HarmBench \cite{harmbench}, JailbreakBench \cite{jbb}, OR-Bench \cite{orbench}, XSTest \cite{xstest} and Alpaca \cite{alpaca}. From it, 120 prompts were chosen to cover eight ranges of the signed distance $m-\mc$, 15 in each, four on the answering side ($m<\mc$) and four on the refusing side.
+
+Each of the 120 prompts has 20 rewordings of four kinds (Table~\ref{tab:kinds}). This gives 2{,}520 prompts and 2{,}400 \emph{pairs} $(x,x')$ of an original and a rewording. For a pair we write
+\begin{equation}
+\Dm=m(x')-m(x),
+\end{equation}
+and the pair is a \emph{flip} when the two values lie on opposite sides of the threshold,
+\begin{equation}
+y=\begin{cases}1 & \text{if } \bigl(m(x')-\mc\bigr)\bigl(m(x)-\mc\bigr)<0,\\ 0 & \text{otherwise.}\end{cases}
+\label{eq:flip}
+\end{equation}
+The flip is defined on $m$ and not on the judged label, because near the threshold about one completion in six has no clear label.
 
 \begin{table}[ht]
 \centering
-\caption{The four kinds of rewording.}
+\caption{The four kinds of rewording. T0 uses the same five recipes for every prompt. T1 to T3 were written by a language model and checked automatically.}
 \label{tab:kinds}
-\begin{tabular}{lll}
+\begin{tabular}{llcl}
 \toprule
-Kind & What changes & Written by \\
+Kind & What changes & Per prompt & Written by \\
 \midrule
-T0 & punctuation, capitalization or spacing & code, the same five recipes for every prompt \\
-T1 & one or two words & a language model, with automatic checks \\
-T2 & full rephrasing with the same meaning & a language model, with automatic checks \\
-T3 & register, or one added clause of context & a language model, with automatic checks \\
+T0 & punctuation, capitalization or spacing & 5 & code \\
+T1 & one or two words & 5 & language model \\
+T2 & full rephrasing with the same meaning & 6 & language model \\
+T3 & register, or one added clause of context & 4 & language model \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Relative size.} The size of a perturbation or difference $\delta$ is always given relative to the state $h$ it belongs to,
+\subsection{Size of a perturbation and relative gain}
+\label{sec:gain}
+
+\paragraph{Relative size.} Let $\delta$ be a perturbation of the state at layer $\ell$, or the difference between the states of two prompts there. Its size is always quoted relative to the state it belongs to, over a stated set of positions $P$:
 \begin{equation}
-\varepsilon = \frac{\lVert\delta\rVert}{\lVert h\rVert},
+\varepsilon_\ell(\delta;P)=\frac{\nrm{\delta}{P}}{\nrm{h_\ell}{P}} .
 \label{eq:eps}
 \end{equation}
-with both norms over the same token positions at the same layer. The relative gain from layer $L$ to layer $L_2$ is $\varepsilon(L_2)/\varepsilon(L)$. It is 1 at the starting layer by construction, and it does not count the growth of the state's own norm with depth as amplification. The state's norm grows about 12.6 times from the embeddings to the last layer.
 
-\paragraph{Baselines.} Every result for a special direction is reported next to random directions of the same size: isotropic ones, and ones drawn with the covariance of real variation between prompts, with the refusal direction of Section~\ref{sec:scalar} projected out.
+\paragraph{Following a perturbation.} Replace $h_\ell$ by $h_\ell+\delta$, run the remaining layers, and let $\delta'$ be the resulting change of the state at a later layer $\ell'$. The \emph{relative gain} is
+\begin{equation}
+R(\ell\to\ell')=\frac{\varepsilon_{\ell'}(\delta';P')}{\varepsilon_\ell(\delta;P)} .
+\label{eq:gain}
+\end{equation}
+$R>1$ means the perturbation has grown relative to the state and $R<1$ that it has shrunk. The norm of the state itself grows about 12.6 times from the embeddings to the last layer; dividing by it in~(\ref{eq:eps}) keeps that growth from being counted as amplification. Three choices of positions are used.
+\begin{itemize}
+\item \emph{One token:} the perturbation is made at one position $t$ and both sizes are taken at that position, $P=P'=\{t\}$. Then $R=1$ at $\ell'=\ell$.
+\item \emph{All tokens:} the perturbation is made at the positions of the user's text and both sizes are taken over $S$, $P=P'=S$. Again $R=1$ at $\ell'=\ell$.
+\item \emph{Template:} the same perturbation, with the change measured at the template positions only, $P=S$ and $P'=\cT$. This starts at 0, because nothing has yet reached the template positions, and measures how strongly the positions that decide the output are disturbed.
+\end{itemize}
 
-\paragraph{Tools.} The model can be restarted from the state at any layer and gives identical output. Forward-mode and reverse-mode derivatives agree to about 2 parts in $10^5$.
+\paragraph{Finite and linearized.} The \emph{finite} gain comes from actually rerunning the model with $h_\ell+\delta$. The \emph{linearized} gain is the limit of an infinitesimal perturbation, $\delta'=J\,\delta$, where $J=\partial h_{\ell'}/\partial h_\ell$ is the Jacobian of the layers in between. The product $J\delta$ is computed exactly by forward-mode differentiation, without forming $J$. The two agree to a few percent at $\varepsilon\le 0.03$ for every direction except the gradient (Section~\ref{sec:amplified}).
+
+\paragraph{Directions.} With $u$ a unit vector in $\mathbb{R}^d$ and $c$ a constant that sets the total size $\varepsilon$:
+\begin{itemize}
+\item \emph{isotropic random:} $u=z/\lVert z\rVert$ with $z$ a standard Gaussian vector;
+\item \emph{covariance-matched random:} $u\propto(1-\hat r\hat r^{\mathsf T})\,C^{1/2}z$, where $C$ is the covariance of the states of different prompts at that layer and $\hat r$ is the refusal direction of Section~\ref{sec:scalar}, projected out so that the baseline does not contain it;
+\item \emph{one token:} $\delta(t)=c\,u$ at a single position;
+\item \emph{same direction at every token:} $\delta(t)=c\,\lVert h_\ell(t)\rVert\,u$ for all $t\in\cU$;
+\item \emph{independent at every token:} $\delta(t)=c\,\lVert h_\ell(t)\rVert\,u_t$ with a separate draw $u_t$ for each $t\in\cU$;
+\item \emph{gradient:} $\delta(t)=c\,g_\ell(t)$, with $g_\ell$ defined in Section~\ref{sec:linresp};
+\item \emph{real rewording:} $\delta(t)=c\,\Delta_\ell(t)$, the measured difference between two wordings, defined next.
+\end{itemize}
+
+\paragraph{Real rewordings.} For a pair $(x,x')$ the displacement at layer $\ell$ is
+\begin{equation}
+\Delta_\ell(t)=h^{x'}_\ell(t)-h^{x}_\ell(t) .
+\label{eq:Delta}
+\end{equation}
+At the template positions this is defined for every pair. At the positions of the user's text it needs a one-to-one match between the tokens of the two prompts, which exists when the edit replaces $k$ tokens by $k$ tokens; this holds for 543 of the 1{,}200 pairs of kinds T0 and T1. For those pairs we follow $\varepsilon_\ell(\Delta_\ell;S)$ through the layers and report it divided by its value at the embeddings, $\varepsilon_\ell/\varepsilon_{-1}$. No perturbation is injected here: the two prompts are simply run, so a ratio above 1 would be amplification by the model.
+
+\paragraph{Effective number of tokens.} How many positions a difference is spread over is measured by the participation ratio
+\begin{equation}
+N_{\rm eff}=\frac{\bigl(\sum_t w_t\bigr)^2}{\sum_t w_t^2},\qquad w_t=\lVert\delta(t)\rVert^2 ,
+\label{eq:neff}
+\end{equation}
+which is 1 when the difference sits at one position and $N$ when it is spread equally over $N$.
+
+\subsection{Gradient and linear response}
+\label{sec:linresp}
+
+The gradient of the output scalar with respect to the state at layer $\ell$ and position $t$ is
+\begin{equation}
+g_\ell(t)=\frac{\partial m}{\partial h_\ell(t)}\in\mathbb{R}^d ,
+\label{eq:g}
+\end{equation}
+where the state at layer $\ell$ is treated as the independent variable and all later layers are differentiated through. It is computed by reverse-mode differentiation for the original prompt $x$.
+
+\paragraph{Linear prediction.} Given the state at all positions at layer $\ell$, the output is fixed, so to first order in the displacement~(\ref{eq:Delta}),
+\begin{equation}
+\Dm\simeq \sum_{t\in P} g_\ell(t)\cdot\Delta_\ell(t)\equiv L_\ell .
+\label{eq:lin}
+\end{equation}
+Summed over all positions this is the first-order Taylor expansion. We mostly use the sum over the template positions only, $P=\cT$, because it is defined for every pair. That version leaves out whatever the layers after $\ell$ still read from the user's text, so it can only be complete once the effect of the rewording has reached the template positions (Section~\ref{sec:swap}).
+
+The quality of~(\ref{eq:lin}) over a set of pairs is described by three numbers: the Pearson correlation between $L_\ell$ and $\Dm$; the slope $b=\sum L_\ell\,\Dm/\sum L_\ell^2$ of the least-squares line through the origin, which is 1 if the prediction has the right size; and the fraction of pairs for which $L_\ell$ and $\Dm$ have the same sign, counted over the pairs with $|\Dm|>0.5$.
+
+\paragraph{Steepness and alignment.} By the Cauchy--Schwarz inequality, among all perturbations of relative size $\varepsilon$ over $S$ the one along the gradient changes $m$ the most, by $\varepsilon\,G_\ell$ to first order, with
+\begin{equation}
+G_\ell=\nrm{g_\ell}{S}\,\nrm{h_\ell}{S} .
+\label{eq:G}
+\end{equation}
+We call $G_\ell$ the \emph{steepness}: the change in $m$ per unit of relative perturbation in the most effective direction. For any other displacement the first-order change is smaller by the cosine of its angle to the gradient,
+\begin{equation}
+\Dm\simeq G_\ell\;\varepsilon_\ell(\Delta_\ell;S)\;\cos\theta_\ell,\qquad
+\cos\theta_\ell=\frac{\sum_{t\in S}g_\ell(t)\cdot\Delta_\ell(t)}{\nrm{g_\ell}{S}\,\nrm{\Delta_\ell}{S}} .
+\label{eq:consistency}
+\end{equation}
+Equation~(\ref{eq:consistency}) separates the three things that decide the effect of a rewording: how steep the output is, how large the rewording is, and how well it is aligned with the steep direction.
+
+\subsection{The swap experiment}
+\label{sec:swap}
+
+The template tokens are identical in the two prompts of a pair, so at the embeddings $\Delta_{-1}(t)=0$ for $t\in\cT$. The rewording can affect the output only by being read out of the user's text into the template positions by attention. The swap experiment measures by which layer this has happened.
+
+For a pair $(x,x')$ and a layer $\ell$: run the original prompt $x$ up to layer $\ell$, replace its state at the five template positions by that of the rewording, $h^{x}_\ell(t)\to h^{x'}_\ell(t)$ for $t\in\cT$, leave the user's text as it is, and run the remaining layers. Call the resulting output $m^{\rm swap}_\ell$. Then
+\begin{equation}
+A_\ell=m^{\rm swap}_\ell-m(x),\qquad f_\ell=\frac{A_\ell}{\Dm} .
+\label{eq:arrival}
+\end{equation}
+After the swap the template positions hold everything the rewording had delivered to them up to layer $\ell$, while everything read after layer $\ell$ comes from the original's text. So $f_\ell$ is the fraction of the eventual change that has \emph{arrived} at the template positions by layer $\ell$. It is 0 at the embeddings and exactly 1 at $\ell=25$. We report the median of $f_\ell$ over the pairs with $|\Dm|>0.5$, since the ratio is meaningless when $\Dm$ is near zero.
+
+\paragraph{What each layer writes.} The increments
+\begin{equation}
+S_\ell=A_\ell-A_{\ell-1},\qquad \sum_{\ell=0}^{25}S_\ell=\Dm ,
+\label{eq:source}
+\end{equation}
+split the change of $m$ exactly by the layer at which it is read into the template positions. The share of layer $\ell$ over a set of pairs $p$ is the regression weight
+\begin{equation}
+w_\ell=\frac{\sum_p S_\ell^{(p)}\,\Dm^{(p)}}{\sum_p \bigl(\Dm^{(p)}\bigr)^2},\qquad \sum_\ell w_\ell=1 .
+\label{eq:share}
+\end{equation}
+
+\paragraph{Split by attention head.} Within layer $\ell$ the attention update at the template positions is a sum over the 8 heads. Let $u_{\ell,h}(t)$ be the change in head $h$'s contribution when it reads the rewording's text instead of the original's, with the same input at the template positions. Its first-order effect on the output is
+\begin{equation}
+e_{\ell,h}=\sum_{t\in\cT} g^{\rm mid}_\ell(t)\cdot u_{\ell,h}(t),
+\label{eq:head}
+\end{equation}
+where $g^{\rm mid}_\ell$ is the gradient of $m$ with respect to the state just after the attention update of layer $\ell$. The share of a head is defined as in~(\ref{eq:share}) with $e_{\ell,h}$ in place of $S_\ell$. Unlike~(\ref{eq:source}) this split is first order, and the head shares need not add up to 1; what they add up to measures how much of the change the split accounts for. Each head's contribution is further divided by the position it reads from.
+
+\subsection{The flip-probability test}
+\label{sec:testdef}
+
+\paragraph{The model.} Fix an original prompt with output $m$ and gradient $g$, and suppose a rewording displaces the state at the template positions at layer $\ell$ by a random $\Delta$. By~(\ref{eq:lin}) the output shifts by $\Dm=g\cdot\Delta$. If $\Delta$ has zero mean and second-moment matrix $\Sigma=\langle\Delta\Delta^{\mathsf T}\rangle$, then $\Dm$ has zero mean and variance
+\begin{equation}
+\sigma^2=\langle (g\cdot\Delta)^2\rangle = g^{\mathsf T}\,\Sigma\, g .
+\label{eq:sigma}
+\end{equation}
+Here $g$ and $\Delta$ are the vectors at the five template positions stacked, of dimension $5d=11{,}520$. A flip~(\ref{eq:flip}) occurs when the shift carries $m$ across $\mc$, that is, when $\Dm$ exceeds the distance $|m-\mc|$ in the direction of the threshold. If $\Dm$ is Gaussian, the probability of that is the one-sided tail
+\begin{equation}
+P_{\rm flip}=\Phi\!\left(-\frac{|m-\mc|}{\sigma}\right),\qquad
+\Phi(x)=\frac{1}{\sqrt{2\pi}}\int_{-\infty}^{x}e^{-t^2/2}\,dt .
+\label{eq:pflip}
+\end{equation}
+The argument is the distance to the threshold in units of a typical shift. $P_{\rm flip}=1/2$ for a prompt at the threshold and falls to 0.16, 0.023 and 0.0013 at one, two and three $\sigma$. This is the same form as the Press--Schechter collapse fraction, with $|m-\mc|$ in place of the critical overdensity.
+
+\paragraph{The four predictors.} All four use~(\ref{eq:pflip}); they differ only in $\sigma$. Let $f$ label the original prompt, $k$ the kind of rewording, and let the average $\langle\cdot\rangle_{k,\neg f}$ run over all pairs of kind $k$ belonging to the \emph{other} 119 prompts, and $\langle\cdot\rangle_{k,f}$ over the 4 to 6 pairs of kind $k$ of prompt $f$ itself.
+\begin{align}
+\text{distance to the threshold:}\quad & \sigma^2_{f,k}=\bigl\langle \Dm^2\bigr\rangle_{k,\neg f}, \label{eq:sigdist}\\
+\text{gradient-based prediction:}\quad & \sigma^2_{f,k}=\bigl\langle (g_f\cdot\Delta)^2\bigr\rangle_{k,\neg f}=g_f^{\mathsf T}\,\Sigma_{k,\neg f}\,g_f, \label{eq:siggrad}\\
+\text{same formula, own rewordings:}\quad & \sigma^2_{f,k}=\bigl\langle (g_f\cdot\Delta)^2\bigr\rangle_{k,f}, \label{eq:sigownlin}\\
+\text{own spread:}\quad & \sigma^2_{f,k}=\bigl\langle \Dm^2\bigr\rangle_{k,f}. \label{eq:sigown}
+\end{align}
+In~(\ref{eq:sigdist}) every prompt gets the same $\sigma$ for a given kind of rewording, so the only thing that distinguishes one prompt from another is its distance $|m-\mc|$. This is the baseline. In~(\ref{eq:siggrad}), the prediction under test, the prompt's own gradient $g_f$ is combined with the displacements observed for other prompts; $\sigma$ is computed as the root mean square of the projections $g_f\cdot\Delta$, which equals $g_f^{\mathsf T}\Sigma g_f$ without forming the matrix. Neither~(\ref{eq:sigdist}) nor~(\ref{eq:siggrad}) uses any rewording of prompt $f$, and neither has a fitted parameter. The last two use the prompt's own rewordings and are not predictions. Equation~(\ref{eq:sigownlin}) shows how well the formula does when it is given the right displacements, and~(\ref{eq:sigown}) how well it does when it is given the prompt's true spread; the latter is the ceiling for a predictor of this form. Probabilities are clipped to the range 0.01 to 0.99.
+
+\paragraph{The Brier score.} A set of predicted probabilities $P_i$ is scored against the outcomes $y_i\in\{0,1\}$ by the mean squared error
+\begin{equation}
+B=\frac{1}{N}\sum_{i=1}^{N}\bigl(P_i-y_i\bigr)^2 ,
+\label{eq:brier}
+\end{equation}
+with $i$ running over the $N=2{,}400$ pairs and $y_i$ the flip indicator~(\ref{eq:flip}). Lower is better. $B=0$ for a perfect forecast and $B=0.25$ for always saying $1/2$. Predicting the overall flip rate $r$ for every pair gives $B=r(1-r)$, the score of a forecast with no skill; here $r=358/2400=0.149$ and $r(1-r)=0.127$. The score rewards both ranking the pairs correctly and getting the probabilities themselves right, which is why it suits a prediction with no fitted parameter.
+
+\paragraph{Uncertainty.} Two predictors $a$ and $b$ are compared by the difference $B_a-B_b$. Its 95\% interval comes from a bootstrap over prompts: the 120 prompts are resampled with replacement 2{,}000 times, each prompt bringing all 20 of its pairs, and the interval runs from the 2.5th to the 97.5th percentile of the resampled differences. Prompts and not pairs are resampled because the pairs of one prompt share its distance from the threshold and are not independent.
+
+\paragraph{Rank correlation.} As a second measure that looks only at the ordering, we give the Spearman rank correlation, over the 120 prompts, between the mean predicted flip probability of a prompt and the fraction of its 20 rewordings that flip.
+
+\paragraph{Gap closed.} The room for improvement is the difference between the baseline and the ceiling. A predictor with score $B$ closes the fraction $(B_{\rm dist}-B)/(B_{\rm dist}-B_{\rm own})$ of it.
+
+\paragraph{The assumptions.} The derivation of~(\ref{eq:pflip}) assumes linear response, zero-mean Gaussian shifts, and displacement statistics that are the same for every prompt. Linear response is tested directly (Section~\ref{sec:linear}). On the second, the measured shifts are not centred for the larger rewordings (Table~\ref{tab:tiers}), and pooled over prompts their distribution has heavier tails than a Gaussian: the excess kurtosis of $\Dm$ is 10, 11, 1.0 and 5.2 for the four kinds, against 0 for a Gaussian. Heavy tails in the pooled distribution are what one expects if each prompt has its own width. That is the third assumption, and it is the one the test shows to fail (Section~\ref{sec:test}).
+
+\subsection{The most amplified directions}
+\label{sec:svd}
+
+For a set of source positions $P$ at layer $\ell$, let $J=\partial h_{25}(\cT)/\partial h_\ell(P)$ be the Jacobian from the state at those positions to the state at the template positions at the last layer. Its largest singular value,
+\begin{equation}
+\sigma_1(J)=\max_{v\ne 0}\frac{\lVert Jv\rVert}{\lVert v\rVert},
+\end{equation}
+is the largest factor by which any infinitesimal perturbation at $P$ is stretched, and the maximizing $v$ is the most amplified direction. Both are found by iterating products with $J$ and $J^{\mathsf T}$, without forming $J$. In relative terms, as in the template version of~(\ref{eq:gain}), the amplification is
+\begin{equation}
+\mathcal{A}=\sigma_1(J)\,\frac{\nrm{h_\ell}{S}}{\nrm{h_{25}}{\cT}} .
+\label{eq:amp}
+\end{equation}
+
+\paragraph{A bound on collective modes.} A perturbation over $N$ positions is a set of one-token perturbations $v(t)$, and the map is linear, $Jv=\sum_t J_t\,v(t)$, with $J_t$ the Jacobian from position $t$ alone. Therefore
+\begin{equation}
+\lVert Jv\rVert\le\sum_t\sigma_1(J_t)\,\lVert v(t)\rVert\le\Bigl(\sum_t\sigma_1(J_t)^2\Bigr)^{1/2}\lVert v\rVert
+\quad\Longrightarrow\quad
+\sigma_1(J)\le\sqrt{N}\,\max_t\sigma_1(J_t) .
+\label{eq:bound}
+\end{equation}
+At equal total size, a perturbation spread over $N$ tokens can be amplified at most $\sqrt N$ times more than the best one-token perturbation, and it reaches that only if all $N$ tokens are equally sensitive and their effects add in the same output direction.
+
+\subsection{Tools}
+
+The model can be restarted from the state at any layer and gives identical output. Forward-mode and reverse-mode derivatives agree to about 2 parts in $10^5$.
 
 \section{Results}
 \label{sec:results}
@@ -97,34 +311,34 @@ with both norms over the same token positions at the same layer. The relative ga
 \subsection{The scalar tracks the outcome, and one direction controls it}
 \label{sec:scalar}
 
-On a random sample of 600 pool prompts, $m$ ranks a refused prompt above an answered one with probability 0.994. The fraction refused rises from 0.13 to 0.90 as $m$ goes from $-2$ to $+1$ (Figure~\ref{fig:reliability}).
+On a random sample of 600 pool prompts, the ranking probability of $m$ (Section~\ref{sec:mdef}) is 0.994. The fraction refused rises from 0.13 to 0.90 as $m$ goes from $-2$ to $+1$ (Figure~\ref{fig:reliability}).
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.6\textwidth]{reliability.png}
-\caption{Fraction of completions judged refused, against $m$.}
+\caption{Fraction of completions judged refused, against $m$. The curve is the logistic fit~(\ref{eq:logistic}) and the dashed line is $\mc$.}
 \label{fig:reliability}
 \end{figure}
 
 Near the threshold the match is looser. Over the 2{,}520 borderline prompts, 89\% of the completions that start with ``I'' are refusals, 8\% are answers and 4\% are unclear. 3\% of the refusals start with another token. For clearly harmful prompts there is no slippage: all 149 completions that start with ``I'' are refusals and no refusal starts otherwise.
 
-The model has a single \emph{refusal direction}, as reported for other chat models by Arditi et al.\ \cite{arditi}. It is the mean state over harmful prompts minus the mean over harmless ones, at layer 13 on the fourth template position. Removing the component along it takes refusals of 100 harmful prompts from 96 to 0. Adding it takes refusals of 100 harmless prompts from 2 to 100. Removing a random direction instead, isotropic or covariance-matched, leaves 88 to 98\% of the harmful prompts refused.
+The model has a single \emph{refusal direction}, as reported for other chat models by Arditi et al.\ \cite{arditi}. Let $r$ be the mean of $h_{13}(t^*)$ over harmful prompts minus its mean over harmless ones, with $t^*$ the fourth template position, and $\hat r=r/\lVert r\rVert$. Removing the component along it, $h\to h-(\hat r\cdot h)\,\hat r$ at every layer and position, takes refusals of 100 harmful prompts from 96 to 0. Adding $r$ to the state at layer 13 at every position takes refusals of 100 harmless prompts from 2 to 100. Removing a random direction instead, isotropic or covariance-matched, leaves 88 to 98\% of the harmful prompts refused.
 
 \subsection{Rewording flips borderline prompts in proportion to their distance from the threshold}
 \label{sec:flips}
 
 \begin{table}[ht]
 \centering
-\caption{Spread of $m$ and fraction of flips by kind of rewording.}
+\caption{Change of $m$ and fraction of flips by kind of rewording, over all pairs of that kind.}
 \label{tab:tiers}
-\begin{tabular}{lcc}
+\begin{tabular}{lccccc}
 \toprule
-Kind of rewording & Spread of $m$ (standard deviation) & Flips \\
+Kind of rewording & Pairs & Median $|\Dm|$ & Root mean square $\Dm$ & Mean $\Dm$ & Flips \\
 \midrule
-T0, punctuation & 0.2 & 3\% \\
-T1, one or two words & 0.6 & 12\% \\
-T2, full rephrasing & 2.1 & 24\% \\
-T3, register or context & 1.0 & 21\% \\
+T0, punctuation & 600 & 0.15 & 0.38 & $+0.06$ & 3\% \\
+T1, one or two words & 600 & 0.38 & 1.07 & $+0.11$ & 12\% \\
+T2, full rephrasing & 720 & 1.48 & 2.99 & $-0.53$ & 24\% \\
+T3, register or context & 480 & 1.05 & 1.99 & $+0.62$ & 21\% \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -145,32 +359,32 @@ below 0.9 & 32\% & 25\% \\
 \end{tabular}
 \end{table}
 
-A full rephrasing moves $m$ by about 2, more than twice the width of the transition (Table~\ref{tab:tiers}). For the prompts nearest the threshold, punctuation alone flips about one variant in ten. The flip rate falls with the distance from the threshold on both sides (Table~\ref{tab:cells}). 87 of the 120 prompts have both a refused and an answered completion among their rewordings.
+A full rephrasing changes $m$ by a median of 1.5, about twice the width of the transition, and its root mean square change is 3.0 (Table~\ref{tab:tiers}). The root mean square is well above the median for every kind, because a minority of rewordings move $m$ a great deal. For the prompts nearest the threshold, punctuation alone flips about one variant in ten. The flip rate falls with the distance from the threshold on both sides (Table~\ref{tab:cells}). 87 of the 120 prompts have both a refused and an answered completion among their rewordings.
 
 \subsection{Perturbations and rewordings are damped}
 \label{sec:damped}
 
-\paragraph{One token at a time.} A perturbation was added to the state at one token at layers 6, 12 and 18 and followed to the last layer, for 43 prompts and about 80 directions each (Figure~\ref{fig:single}). Random directions, differences between real prompts and differences between rewordings all shrink. By the last layer they are at 0.07 to 0.20 of their starting relative size from layer 6, 0.18 to 0.48 from layer 12, and 0.37 to 0.68 from layer 18. Differences between rewordings follow the covariance-matched random directions in every panel. The refusal direction keeps its size better than random directions from layer 12 on (0.35 to 0.83 against 0.24 to 0.66).
+\paragraph{One token at a time.} A perturbation was added to the state at one token at layers 6, 12 and 18 and followed to the last layer, for 43 prompts and about 80 directions each. Figure~\ref{fig:single} shows the one-token relative gain $R$ of~(\ref{eq:gain}). Random directions, differences between real prompts and differences between rewordings all shrink: at the last layer $R$ is 0.07 to 0.20 from layer 6, 0.18 to 0.48 from layer 12, and 0.37 to 0.68 from layer 18. Differences between rewordings follow the covariance-matched random directions in every panel. The refusal direction keeps its size better than random directions from layer 12 on (0.35 to 0.83 against 0.24 to 0.66).
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\textwidth]{rgain_same_position.png}
-\caption{Relative size of a perturbation made at one token, against layer. Each panel is one starting layer and token. Blue: gradient of $m$. Orange: refusal direction. Green: differences between rewordings. Grey: random baselines.}
+\caption{One-token relative gain $R(\ell\to\ell')$, equation~(\ref{eq:gain}), against the later layer $\ell'$. Each panel is one starting layer and token. Blue: gradient of $m$. Orange: refusal direction. Green: differences between rewordings. Grey: random baselines.}
 \label{fig:single}
 \end{figure}
 
-\paragraph{All tokens at once.} Perturbations with a total size of 1\%, 3\% and 10\% of the state were added to the user's tokens at layers 2, 6 and 10 for 16 prompts, with 16 random draws of each kind (Figure~\ref{fig:collective}, right). By the last layer they are at 0.12 to 0.51 of their starting relative size for every kind: one token, an independent direction at every token, and the same direction at every token. At equal total size, the same direction at every token ends within 5\% of the single most sensitive token. Growth on the way is rare and does not last: the relative size exceeded 1 at some intermediate layer in 6\% of 38{,}000 runs, with a largest value of 2.9, and at the last layer in under 1\%.
+\paragraph{All tokens at once.} Perturbations with a total relative size $\varepsilon$ of 1\%, 3\% and 10\% over $S$ were added to the user's tokens at layers 2, 6 and 10 for 16 prompts, with 16 random draws of each kind (Figure~\ref{fig:collective}, right). The all-token gain at the last layer is 0.12 to 0.51 for every kind: one token, an independent direction at every token, and the same direction at every token. At equal total size, the same direction at every token ends within 5\% of the single most sensitive token. Growth on the way is rare and does not last: $R$ exceeded 1 at some intermediate layer in 6\% of 38{,}000 runs, with a largest value of 2.9, and at the last layer in under 1\%.
 
-\paragraph{Real rewordings.} For 543 pairs in which punctuation or one word was changed without changing the number of tokens, the difference between the two prompts' states was taken over every token of the user's text and the template. Nothing is added from outside in this measurement, so a rise would be amplification by the model. The relative difference is 17.5\% at the embeddings and 6.6\% at the last layer. Per pair, the last-layer value is 0.42 of the starting value (Figure~\ref{fig:collective}, left). It rises by 8\% in the first layer and falls after that, and 4 of the 543 pairs end above where they started. In absolute size the difference grows 4.7 times while the state grows 12.6 times.
+\paragraph{Real rewordings.} For the 543 one-to-one pairs of Section~\ref{sec:gain}, the relative difference $\varepsilon_\ell(\Delta_\ell;S)$ between the two prompts has a median of 17.5\% at the embeddings and 6.6\% at the last layer. Per pair, the ratio $\varepsilon_{25}/\varepsilon_{-1}$ has a median of 0.42 (Figure~\ref{fig:collective}, left). The ratio rises by 8\% in the first layer and falls after that, and 4 of the 543 pairs end above 1. In absolute size the difference grows 4.7 times while the state grows 12.6 times.
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\textwidth]{collective.png}
-\caption{Left: relative difference between two wordings over all tokens, divided by its value at the embeddings. Right: relative size of perturbations added to the user's tokens at layer 6, on a logarithmic scale. Bands hold the middle half of the cases.}
+\caption{Left: $\varepsilon_\ell/\varepsilon_{-1}$ for the difference between two wordings over all tokens. Right: all-token relative gain $R(6\to\ell')$ of perturbations added to the user's tokens at layer 6 with $\varepsilon=0.03$, on a logarithmic scale. Bands hold the middle half of the cases.}
 \label{fig:collective}
 \end{figure}
 
-The difference also spreads. It starts at the changed tokens only and covers an effective 3.3 tokens at the last layer, of a median 20, with half of it still at the changed tokens.
+The difference also spreads. Its effective number of tokens~(\ref{eq:neff}) is 1 at the embeddings, where only the changed tokens differ, and 3.3 at the last layer, of a median 20 in $S$. Half of the squared difference is still at the changed tokens there.
 
 \subsection{A narrow set of directions is amplified}
 \label{sec:amplified}
@@ -178,82 +392,77 @@ The difference also spreads. It starts at the changed tokens only and covers an 
 The gradient of $m$ is the exception in both experiments.
 
 \begin{description}
-\item[Growth.] A 3\% perturbation along the gradient over all the user's tokens reaches 5 to 7 times its relative size by layer 22 and ends at 3.3 to 4.5 (Figure~\ref{fig:collective}, blue). At the template positions the relative change at the last layer is 8 to 10 times that of the perturbation, and 11 to 21 times for an infinitesimal one.
-\item[The most amplified direction.] For 7 prompts the most amplified perturbation was computed directly, as the top singular vector of the linearized map to the template positions at the last layer, from the user's tokens alone and from the user's and template tokens together. It is amplified 13 to 38 times, depending on the starting layer and the set of tokens. The gradient direction reaches 30 to 95\% of that. A random direction over the same tokens reached 0.7\% of it in the one case checked.
-\item[Steepness.] Over all 120 prompts, $m$ changes by a median of 320 to 490 per unit of relative perturbation along the gradient, at every layer from 0 to 15. A perturbation of 0.2\% of the state along the gradient therefore moves $m$ by the width of the transition. Prompts in the half nearer the threshold are steeper than the others by 7 to 45\%, depending on the layer.
-\item[Saturation.] At 10\% size the growth along the gradient is a fifth to a third of the infinitesimal value.
-\item[Many tokens against one.] The gradient over all the user's tokens is 1.3 to 2.2 times as effective as the gradient at the single best token. The most amplified mode over the user's text is 1.7 to 2.3 times the most amplified one-token mode and spans an effective 4 to 6 of a median 14 tokens. For a linear map the combined amplification cannot exceed $\sqrt{N}$ times the best one-token amplification, and the measured value is 0.45 to 0.7 of $\sqrt{N}$. The collective modes are therefore sums of a few one-token modes, and there is no separate collective instability.
+\item[Growth.] A perturbation with $\varepsilon=0.03$ along the gradient over all the user's tokens reaches an all-token gain of 5 to 7 by layer 22 and ends at 3.3 to 4.5 (Figure~\ref{fig:collective}, blue). Its template gain at the last layer is 8 to 10, and 11 to 21 in the linearized limit.
+\item[The most amplified direction.] For 7 prompts the top singular vector of Section~\ref{sec:svd} was computed, with the user's text as the source and with the user's text and the template together. The relative amplification $\mathcal{A}$ of~(\ref{eq:amp}) is 13 to 38, depending on the starting layer and the source. The gradient direction reaches 30 to 95\% of that. A random direction over the same tokens reached 0.7\% of it in the one case checked.
+\item[Steepness.] Over all 120 prompts, the steepness $G_\ell$ of~(\ref{eq:G}) has a median of 320 to 490 at every layer from 0 to 15. A perturbation of 0.2\% of the state along the gradient therefore moves $m$ by 0.8, the width of the transition. Prompts in the half nearer the threshold are steeper than the others by 7 to 45\%, depending on the layer.
+\item[Saturation.] The response along the gradient is far from linear at the size of real rewordings: at $\varepsilon=0.1$ the template gain is a fifth to a third of its linearized value.
+\item[Many tokens against one.] The gradient over all the user's tokens is 1.3 to 2.2 times as effective as the gradient at the single best token. The top singular value with the user's text as source is 1.7 to 2.3 times that of the most sensitive single token, and its singular vector has $N_{\rm eff}$ of 4 to 6 of a median 14 tokens. The bound~(\ref{eq:bound}) allows a factor $\sqrt N$; the measured factor is 0.45 to 0.7 of $\sqrt N$. The collective modes are therefore sums of a few one-token modes, and there is no separate collective instability.
 \end{description}
 
-Real rewordings barely point along these directions. The cosine between the displacement of a small edit and the gradient is 0.003 to 0.004 in layers 0 to 6 and 0.010 at layer 15, against 0.002 to 0.003 for random displacements with the same norm at every token.
+Real rewordings barely point along these directions. For a small edit the cosine in~(\ref{eq:consistency}) has a median absolute value of 0.003 to 0.004 in layers 0 to 6 and 0.010 at layer 15, against 0.002 to 0.003 for random displacements with the same norm at every token.
 
-These numbers are consistent with each other to within their ranges. To first order the change in $m$ is
-\begin{equation}
-\Delta m \simeq g\cdot\Delta = \bigl(\lVert g\rVert\,\lVert h\rVert\bigr)\,\varepsilon\,\cos\theta ,
-\label{eq:consistency}
-\end{equation}
-where $\Delta$ is the displacement, $\varepsilon$ its relative size and $\theta$ its angle to the gradient. A small edit has $\varepsilon$ of 0.13 to 0.17 in the first six layers. With a steepness $\lVert g\rVert\lVert h\rVert$ of 320 to 490 and a cosine of 0.003 to 0.004, equation~(\ref{eq:consistency}) gives a change in $m$ of 0.1 to 0.3. The measured median is 0.25.
+These numbers are consistent with each other to within their ranges. In the first six layers a small edit has $\varepsilon$ of 0.13 to 0.17, the steepness is 320 to 490 and the cosine 0.003 to 0.004, so equation~(\ref{eq:consistency}) gives $|\Dm|$ of 0.1 to 0.3. The measured median for these pairs is 0.25.
 
 \subsection{Linear response describes each flip}
 \label{sec:linear}
 
-The difference between two wordings reaches the template positions between layers 6 and 15. Replacing the original prompt's state at the five template positions by the reworded prompt's, at one layer, reproduces 0.10 of the eventual change in $m$ at layer 6, 0.52 at layer 9, 0.76 at layer 12, 0.95 at layer 15 and all of it from layer 18 (Figure~\ref{fig:arrival}).
+The difference between two wordings reaches the template positions between layers 6 and 15. The arrival fraction $f_\ell$ of the swap experiment (Section~\ref{sec:swap}) is 0.10 at layer 6, 0.52 at layer 9, 0.76 at layer 12, 0.95 at layer 15 and 1.00 from layer 18 (Figure~\ref{fig:arrival}). Almost nothing the model reads from the user's text after layer 18 affects $m$.
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.7\textwidth]{arrival_curve.png}
-\caption{Fraction of the change in $m$ that is reproduced by swapping the template-position state at one layer.}
+\caption{Arrival fraction $f_\ell$, equation~(\ref{eq:arrival}): the fraction of the change in $m$ that is reproduced by swapping the template-position state at layer $\ell$.}
 \label{fig:arrival}
 \end{figure}
 
-At layer 15, the gradient for the original prompt times the difference in state between the two wordings predicts the actual change in $m$ with correlation 0.92 and slope 0.99, and with the right sign for 99\% of the pairs whose change exceeds 0.5 (Figure~\ref{fig:gdelta}). This holds for full rephrasings too, although they are two to five times larger than the range in which random perturbations respond linearly. Changes in $m$ larger than about 3 fall away from the line.
+At layer 15, the linear prediction $L_{15}$ of~(\ref{eq:lin}) over the template positions has correlation 0.92 with the actual $\Dm$ and slope 0.99, and the right sign for 99\% of the pairs with $|\Dm|>0.5$ (Figure~\ref{fig:gdelta}). This holds for full rephrasings too, although they are two to five times larger than the range in which random perturbations respond linearly. Changes larger than about 3 fall away from the line.
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.8\textwidth]{gdelta_vs_actual.png}
-\caption{Gradient times difference in state, against the actual change in $m$; one point per pair of an original and a rewording.}
+\caption{Linear prediction $L_\ell$ against the actual change $\Dm$; one point per pair of an original and a rewording.}
 \label{fig:gdelta}
 \end{figure}
 
-Summing the same product over the user's tokens as well gives the sign of the change from layer 4 (92\% agreement) and its size from layers 12 to 15. It fails at layers 0 to 2, where a swapped token is an 80\% change of its own state. The linear description therefore starts only after the edit has been absorbed by the first few layers and cannot be run from the embeddings.
+For the one-to-one pairs the sum in~(\ref{eq:lin}) can be taken over $S$, the user's text included. It then gives the sign of $\Dm$ from layer 4 (92\% agreement) and its size from layers 12 to 15. It fails at layers 0 to 2, where a swapped token is a change of 80\% of its own state and first order does not apply. The linear description therefore starts only after the edit has been absorbed by the first few layers and cannot be run from the embeddings.
 
-Much of the effect lies along the refusal direction of Section~\ref{sec:scalar}. Across the 2{,}400 pairs, the change in the state's projection on it correlates 0.82 with the change in $m$. This is from a first look during review and was not a planned measurement.
+Much of the effect lies along the refusal direction of Section~\ref{sec:scalar}. Across the 2{,}400 pairs, the change in the projection $\hat r\cdot h_{13}(t^*)$ correlates 0.82 with $\Dm$. This is from a first look during review and was not a planned measurement.
 
 \subsection{The flip probability is not predicted from the prompt alone}
 \label{sec:test}
 
-Each prompt's flip probability was predicted with equations~(\ref{eq:sigma}) and~(\ref{eq:pflip}) from its own gradient at layer 15 and the rewording displacements of the other 119 prompts. The comparison is the distance to the threshold divided by the typical spread for that kind of rewording (Table~\ref{tab:headline}).
+Table~\ref{tab:headline} gives the scores of the four predictors of Section~\ref{sec:testdef}, with gradients and displacements taken at layer 15.
 
 \begin{table}[ht]
 \centering
-\caption{The test. Lower Brier score is better. The rank correlation is with the observed flip fraction of each prompt. The last two rows use the prompt's own rewordings and are not predictions.}
+\caption{The test. $B$ is the Brier score~(\ref{eq:brier}), for which lower is better and a forecast with no skill scores 0.127. The rank correlation is with the observed flip fraction of each prompt. The last two rows use the prompt's own rewordings and are not predictions.}
 \label{tab:headline}
-\begin{tabular}{lcc}
+\begin{tabular}{llcc}
 \toprule
-Predictor & Brier score & Rank correlation \\
+Predictor & $\sigma$ & $B$ & Rank correlation \\
 \midrule
-Distance to the threshold & 0.1071 & 0.71 \\
-Gradient-based prediction & 0.1059 & 0.74 \\
-Same formula with the prompt's own rewordings & 0.0998 & \\
-Best achievable with the prompt's own spread & 0.0990 & 0.85 \\
+Distance to the threshold & (\ref{eq:sigdist}) & 0.1071 & 0.71 \\
+Gradient-based prediction & (\ref{eq:siggrad}) & 0.1059 & 0.74 \\
+Same formula, own rewordings & (\ref{eq:sigownlin}) & 0.0998 & \\
+Own spread (ceiling for this formula) & (\ref{eq:sigown}) & 0.0990 & 0.85 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The difference between the first two rows is $-0.0012$ with a 95\% interval of $-0.0035$ to $+0.0012$, so no gain can be claimed. The result is the same at every layer from 9 on.
+The difference between the first two rows is $-0.0012$ with a 95\% interval of $-0.0035$ to $+0.0012$, so no gain can be claimed. The result is the same at every layer from 9 on. A version that drops the Gaussian assumption, and uses for $P_{\rm flip}$ the fraction of the other prompts' displacements for which $m+g\cdot\Delta$ lies across the threshold, gives $-0.0023$ with interval $-0.0058$ to $+0.0013$.
 
-The third row shows where the prediction fails. The formula works when it is given the prompt's own rewording displacements. What does not transfer between prompts is how far rewordings move the state along the gradient. The predicted spread $\sigma$ has the right size on average, but its rank correlation with each prompt's actual spread is 0.37, against 0.31 for the length of the gradient alone.
+The third row shows where the prediction fails. Replacing the true changes $\Dm$ by the linear prediction $g\cdot\Delta$ costs almost nothing: rows three and four differ by 0.0008. The loss is in the step from row three to row two, where the prompt's own displacements are replaced by those of other prompts. What does not transfer between prompts is how far rewordings move the state along the gradient. The predicted $\sigma$ of~(\ref{eq:siggrad}) has the right size on average, but its rank correlation with each prompt's actual spread is 0.37, against 0.31 for the length of the gradient alone.
 
-Two further predictors built from the original prompt alone were scored: the length of the gradient, and a ``gross signal'' that adds up the opposing contributions passing through the attention heads of Section~\ref{sec:heads}. Each closes 12 to 15\% of the gap between the first and last rows, and none detectably (gross signal: $-0.0010$, interval $-0.0028$ to $+0.0008$). The test could only have detected a predictor that closed a third or more of that gap. No further predictors will be tried on these 120 prompts, because a later success would be a matter of selection.
+Two further predictors built from the original prompt alone were scored: the length of the gradient, and a ``gross signal'' that adds up the opposing contributions passing through the attention heads of Section~\ref{sec:heads}. Each closes 12 to 15\% of the gap between the first and last rows, and none detectably (gross signal: $-0.0010$, interval $-0.0028$ to $+0.0008$). The gap is 0.0081 and the half-width of the interval about 0.0024, so the test could only have detected a predictor that closed a third or more of the gap. No further predictors will be tried on these 120 prompts, because a later success would be a matter of selection.
 
 \subsection{A few attention heads write the difference}
 \label{sec:heads}
 
-The change in $m$ between two wordings was split exactly by the layer at which it is read into the template positions, and then to first order by attention head (26 layers of 8 heads, 208 in all).
+The change in $m$ between two wordings was split by layer with~(\ref{eq:source}) and~(\ref{eq:share}), and by attention head with~(\ref{eq:head}).
 
 \begin{itemize}
-\item Layers 7, 11 and 13 write 57\% of the change, and layers 7 to 16 write 91\% (Figure~\ref{fig:layers}).
-\item Ten heads carry 63\% of what the split by head accounts for, and seven carry half (Figure~\ref{fig:heads}). In the notation layer.head they are led by 13.2, 11.1, 7.3, 11.6 and 7.0.
+\item Layers 7, 11 and 13 have shares $w_\ell$ of 0.24, 0.19 and 0.15, together 57\% of the change, and layers 7 to 16 have 91\% (Figure~\ref{fig:layers}).
+\item The head shares add up to 0.83, so the first-order split accounts for 83\% of the change. Ten heads carry 63\% of that, and seven carry half (Figure~\ref{fig:heads}). In the notation layer.head they are led by 13.2, 11.1, 7.3, 11.6 and 7.0.
 \item These heads read the user's text and not the template tokens.
 \item They are the same for all four kinds of rewording and across prompts. Computed on two random halves of the 120 prompts, the ranking of heads agrees with rank correlation 0.88.
 \item For punctuation and one-word edits, 44\% of what the heads read comes from the edited tokens and 57\% from unchanged later tokens, whose own state shifted because they attended to the edit in earlier layers.
@@ -262,18 +471,18 @@ The change in $m$ between two wordings was split exactly by the layer at which i
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.75\textwidth]{layers.png}
-\caption{Share of the change in $m$ written into the template positions at each layer.}
+\caption{Share $w_\ell$ of the change in $m$ written into the template positions at each layer, equation~(\ref{eq:share}).}
 \label{fig:layers}
 \end{figure}
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.75\textwidth]{heads.png}
-\caption{Share of the change in $m$ by attention head.}
+\caption{Share of the change in $m$ by attention head, from equation~(\ref{eq:head}).}
 \label{fig:heads}
 \end{figure}
 
-The split by head accounts for 83\% of the change. It is an attribution. No head was switched off or swapped, so these heads have not been shown to be necessary or sufficient for a flip.
+The split by head is an attribution. No head was switched off or swapped, so these heads have not been shown to be necessary or sufficient for a flip.
 
 \subsection{A feature-level description was not possible}
 \label{sec:features}
@@ -296,7 +505,7 @@ For almost every direction in state space the model is contracting in relative t
 
 The model is steep along a small number of directions, of which the gradient of $m$ is close to the steepest. Along it, a change of a fraction of a percent decides the outcome. This is what one expects of a system that computes a decision: it has to be sensitive to the quantity it decides on and can afford to be insensitive to the rest.
 
-A rewording is a large perturbation, 13 to 17\% of the state for a one-word edit, that points almost anywhere. Its component along the steep direction is under 1\% of it. Whether that is enough to cross the threshold depends mostly on how far the original prompt was from the threshold, which is why the distance alone predicts flips about as well as anything computed from the gradient.
+A rewording is a large perturbation, 13 to 17\% of the state for a one-word edit, that points almost anywhere. In the terms of equation~(\ref{eq:consistency}), the steepness is large, the size is large, and the cosine is under 0.01. Whether the product is enough to cross the threshold depends mostly on how far the original prompt was from the threshold, which is why the distance alone predicts flips about as well as anything computed from the gradient.
 
 In the language of the original analogy, there is no instability in the sense of generic perturbations growing with depth. There is one high-gain channel, and wording changes couple to it weakly and in a way that depends on the prompt.
 
@@ -305,10 +514,11 @@ In the language of the original analogy, there is no instability in the sense of
 
 \begin{enumerate}
 \item \textbf{One model, one behaviour.} All results are for Gemma-2-2b-it and for refusal read off the first output token. Nothing here shows that larger models or other behaviours are the same.
-\item \textbf{The outcome is not binary near the threshold.} About one completion in six there is neither a clear refusal nor a clear answer within 48 tokens. The flip results therefore use the side of $\mc$ as the main outcome.
+\item \textbf{The outcome is not binary near the threshold.} About one completion in six there is neither a clear refusal nor a clear answer within 48 tokens. The flip~(\ref{eq:flip}) is therefore a crossing of $\mc$ by $m$, not a change in what the model writes. The two do not always coincide: among the 2{,}010 pairs with a clear label for both prompts, 190 flip on both definitions, 78 cross $\mc$ without a change of label, and 85 change label without crossing $\mc$.
 \item \textbf{The judge is rule-based and lightly audited.} Its only audits were done by the session that wrote the rules: on 150 rewording completions the agreement was 0.81, and 0.99 where both gave a clear label.
 \item \textbf{The 120 prompts are not a clean sample.} 40 candidates were dropped and replaced because the language models writing the rewordings would not reword them, mostly on the refusing side. Of about 1{,}800 written rewordings, 100 were read against their originals.
 \item \textbf{The prompts span a wide range of distances from the threshold.} This makes the distance a strong predictor here and leaves little room to improve on it. Among prompts that are all near the threshold, a prediction of the spread would matter more, and that has not been tested.
+\item \textbf{The Gaussian model is approximate.} The shifts are not centred for the larger rewordings and their pooled distribution has heavy tails (Section~\ref{sec:testdef}). The version of the test without the Gaussian assumption gives the same conclusion.
 \item \textbf{Reduced samples.} The one-token sweep covered 43 of 60 planned prompts. The many-token perturbations used 16 prompts where 30 or more were planned, and the most amplified directions 7 where 10 were planned. The contrasts reported from them are a factor of 10 and hold for every prompt, but the ratios of many-token to one-token amplification are loose.
 \item \textbf{The heads are attributed, not tested.} See Section~\ref{sec:heads}.
 \item \textbf{How the work was done.} The code and analyses were written by AI sessions, one work package each. A separate planning session reviewed each package and recomputed its main numbers with independent code, and for the last package repeated three measurements on the model through a different code path. No one else has audited the code.
@@ -320,7 +530,7 @@ In the language of the original analogy, there is no instability in the sense of
 
 \begin{itemize}
 \item \textbf{Are the heads of Section~\ref{sec:heads} causal?} Swapping only those heads' reading between two wordings, against random sets of heads of the same number, would show it.
-\item \textbf{What sets a rewording's small component along the steep direction?} The flip is decided by under 1\% of the displacement, and three attempts to predict its typical size from the original prompt have failed.
+\item \textbf{What sets the cosine in equation~(\ref{eq:consistency})?} The flip is decided by under 1\% of the displacement, and three attempts to predict its typical size from the original prompt have failed.
 \item \textbf{A feature-level description.} It needs dictionaries that work at the template positions of the chat model.
 \item \textbf{Does this hold for larger models and other behaviours?}
 \end{itemize}
