@@ -25,7 +25,7 @@
 \maketitle
 
 \begin{abstract}
-A small change in the wording of a request can flip a chat model between refusing and answering. We ask whether this happens because the model amplifies the change as it passes through the layers, and whether the flip can be predicted from a linearized description of the model. For Gemma-2-2b-it the answer to the first question is no. The difference between two wordings shrinks in relative size with depth, to 0.42 of its starting value when measured over all tokens. Random perturbations shrink in the same way, whether they are made at one token or at every token of the user's text. A narrow set of directions close to the gradient of the output is amplified about 10 to 40 times, but a real rewording has a component of at most 1\% along them. The answer to the second question is mixed. Once the two wordings are known, the gradient times the difference in internal state predicts the change in the output with correlation 0.92 and slope 0.99. From the original prompt alone, three predictors of how often rewording flips it do no better than the prompt's distance from the refusal threshold. The picture that fits the measurements is a damped system with one steep direction: a rewording flips a prompt when the prompt is near the threshold and the rewording's small component along the steep direction is enough to cross it. The difference between two wordings is written into the positions that decide the output at layers 7, 11 and 13, mostly by about ten attention heads that are the same for every prompt; this last statement is an attribution and has not been tested by intervention.
+A small change in the wording of a request can flip a chat model between refusing and answering. We ask whether this happens because the model amplifies the change as it passes through the layers, and whether the flip can be predicted from a linearized description of the model. For Gemma-2-2b-it the answer to the first question is no. The difference between two wordings shrinks in relative size with depth, to 0.42 of its starting value when measured over all tokens. Random perturbations shrink in the same way, whether they are made at one token or at every token of the user's text. A narrow set of directions close to the gradient of the output is amplified about 10 to 40 times, but a real rewording has a component of at most 1\% along them. The answer to the second question is mixed. Once the two wordings are known, the gradient times the difference in internal state predicts the change in the output with correlation 0.92 and slope 0.99. From the original prompt alone, three predictors of how often rewording flips it do no better than the prompt's distance from the refusal threshold. The gradient is largely one direction shared by all prompts; on real prompts it reads the same coordinate as the known refusal direction (correlation 0.96), although the two vectors have a cosine of only 0.2 to 0.3. The picture that fits the measurements is a damped system with one steep direction: a rewording flips a prompt when the prompt is near the threshold and the rewording's small component along the steep direction is enough to cross it. The difference between two wordings is written into the positions that decide the output at layers 7, 11 and 13, mostly by about ten attention heads that are the same for every prompt; this last statement is an attribution and has not been tested by intervention.
 \end{abstract}
 
 \section{Question and approach}
@@ -403,6 +403,44 @@ Real rewordings barely point along these directions. For a small edit the cosine
 
 These numbers are consistent with each other to within their ranges. In the first six layers a small edit has $\varepsilon$ of 0.13 to 0.17, the steepness is 320 to 490 and the cosine 0.003 to 0.004, so equation~(\ref{eq:consistency}) gives $|\Dm|$ of 0.1 to 0.3. The measured median for these pairs is 0.25.
 
+\subsection{What the gradient direction is}
+\label{sec:gradmeaning}
+
+The gradient is the steep direction of Section~\ref{sec:amplified}. At the last layer it has an exact meaning: by~(\ref{eq:m}), $m$ is the logit of ``I'' minus the logarithm of the summed exponentials of all other logits, so the gradient there is the output vector of ``I'' minus the probability-weighted average of the output vectors of the tokens the model would otherwise start with. At earlier layers it is that read-out pulled back through the layers in between, and it depends on the prompt. Three measurements say what it is in practice. They use the gradients $g_\ell(t)$ of the 120 original prompts at the template positions and the states of the 5{,}311 pool prompts. We write $\hat g=g/\lVert g\rVert$, and $r_\ell(t)$ for the difference of means of Section~\ref{sec:scalar} taken at layer $\ell$ and template position $t$, so that $r=r_{13}(t^*)$.
+
+\paragraph{It is mostly one direction, shared by all prompts.} Table~\ref{tab:gradshared} gives the mean cosine $\hat g_f\cdot\hat g_{f'}$ between the gradients of two different prompts, and the share of the squared length of the 120 unit gradients that lies along their first principal direction and along their first ten. Two random directions in 2{,}304 dimensions have a cosine of about 0.014. The gradients are far more alike than that at every layer, and increasingly so with depth. At the last template position the mean cosine is 0.41 at layer 13 and 0.82 at layer 25. Prompts on the same side of the threshold are only slightly more alike than prompts on opposite sides (0.44 against 0.37 at layer 13, last position).
+
+\begin{table}[ht]
+\centering
+\caption{The gradients of the 120 prompts at the fourth template position $t^*$, by layer: how alike they are, and their cosine with the difference-of-means direction $r_\ell(t^*)$ at the same layer (median over prompts).}
+\label{tab:gradshared}
+\begin{tabular}{ccccc}
+\toprule
+Layer & Mean cosine between & Share on first & Share on first ten & Cosine with $r_\ell(t^*)$ \\
+ & two prompts & principal direction & principal directions & \\
+\midrule
+0 & 0.36 & 0.40 & 0.70 & 0.00 \\
+6 & 0.35 & 0.39 & 0.67 & 0.03 \\
+9 & 0.44 & 0.48 & 0.73 & 0.13 \\
+13 & 0.53 & 0.56 & 0.80 & 0.23 \\
+15 & 0.59 & 0.62 & 0.84 & 0.25 \\
+18 & 0.62 & 0.64 & 0.89 & 0.21 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{It has a steady component along the refusal direction, and is not the same vector.} The cosine between a prompt's gradient and $r_\ell(t^*)$ is zero up to layer 3 and 0.19 to 0.26 from layer 12 to layer 21 (Table~\ref{tab:gradshared}). From layer 12 on it has the same sign for 97 to 100\% of the prompts.
+
+\paragraph{On real prompts the two read the same coordinate.} Let $\bar g$ be the unit vector along the mean of the $\hat g_f$ at layer 13, position $t^*$; its cosine with $\hat r$ is 0.29. Over the 5{,}311 pool prompts, the projections $\bar g\cdot h$ and $\hat r\cdot h$ of the state have a correlation of 0.96. Each separates harmful from harmless prompts almost perfectly: the ranking probability is 0.999 for $\bar g\cdot h$ and 1.000 for $\hat r\cdot h$, and its median is 0.998 when the gradient of a single prompt is used.
+
+A cosine of 0.3 and a correlation of 0.96 are compatible because the states are strongly anisotropic. The refusal direction is the direction in which prompts differ most: it coincides with the first principal direction of the pool states (cosine 0.98) and holds 28\% of their variance, where an average direction holds $1/2304=0.04\%$. The component of the gradient along $\hat r$ is under a tenth of its squared length, but it multiplies by far the largest variation among real prompts, and so it dominates what the gradient reads from them. The rest of the gradient lies in directions along which real prompts hardly vary.
+
+\paragraph{As a perturbation the gradient is about four times more effective.} To first order, a perturbation of relative size $\varepsilon$ at the single position $(13,t^*)$ along a unit vector $u$ changes $m$ by $\varepsilon\,|g\cdot u|\,\lVert h\rVert$. The median of $|g\cdot u|\,\lVert h\rVert$ over the 120 prompts is 52 along the gradient, 12 along $\hat r$, 1.8 along a covariance-matched random direction and 0.7 along an isotropic one. The refusal direction is therefore 6 to 7 times more effective than a typical direction of real variation, and the gradient 4 times more effective again, by using directions that real prompts do not explore.
+
+\paragraph{A stricter relation that does not hold.} The best linear read-out for separating two Gaussian classes with a common covariance $C$ is the difference of their means multiplied by the inverse covariance, $C^{-1}r$. If the model's read-out were that optimal discriminant, one would find $g\propto C^{-1}r$. This is not what is found: the cosine between $g$ and $C^{-1}r$, with $C$ the covariance of the pool states and a ridge term added for stability, is 0.02 to 0.05, at the level of random directions (0.015).
+
+\paragraph{Reading.} The gradient is a read-out with two parts. One part reads the refusal coordinate, which is where real prompts move. The larger part points where real prompts do not go, which is why a perturbation along the gradient is so effective and so unlike a rewording. A largely shared gradient also fits the negative result of Section~\ref{sec:test}: if the gradient is nearly the same vector for every prompt, a prompt's own gradient says little that distinguishes it from the others. That link has not been tested directly.
+
 \subsection{Linear response describes each flip}
 \label{sec:linear}
 
@@ -426,7 +464,7 @@ At layer 15, the linear prediction $L_{15}$ of~(\ref{eq:lin}) over the template 
 
 For the one-to-one pairs the sum in~(\ref{eq:lin}) can be taken over $S$, the user's text included. It then gives the sign of $\Dm$ from layer 4 (92\% agreement) and its size from layers 12 to 15. It fails at layers 0 to 2, where a swapped token is a change of 80\% of its own state and first order does not apply. The linear description therefore starts only after the edit has been absorbed by the first few layers and cannot be run from the embeddings.
 
-Much of the effect lies along the refusal direction of Section~\ref{sec:scalar}. Across the 2{,}400 pairs, the change in the projection $\hat r\cdot h_{13}(t^*)$ correlates 0.82 with $\Dm$. This is from a first look during review and was not a planned measurement.
+Much of the effect lies along the refusal direction, as Section~\ref{sec:gradmeaning} leads one to expect. Across the 2{,}400 pairs, the change in the projection $\hat r\cdot h_{13}(t^*)$ correlates 0.82 with $\Dm$. This is from a first look during review and was not a planned measurement.
 
 \subsection{The flip probability is not predicted from the prompt alone}
 \label{sec:test}
@@ -503,7 +541,7 @@ This section is a reading of the results, not a further measurement.
 
 For almost every direction in state space the model is contracting in relative terms. A difference between two prompts grows more slowly than the state it sits on, so it matters less and less as depth increases. This holds for random directions, for real rewordings, for one token and for many.
 
-The model is steep along a small number of directions, of which the gradient of $m$ is close to the steepest. Along it, a change of a fraction of a percent decides the outcome. This is what one expects of a system that computes a decision: it has to be sensitive to the quantity it decides on and can afford to be insensitive to the rest.
+The model is steep along a small number of directions, of which the gradient of $m$ is close to the steepest. Along it, a change of a fraction of a percent decides the outcome. This is what one expects of a system that computes a decision: it has to be sensitive to the quantity it decides on and can afford to be insensitive to the rest. The quantity is largely the same for every prompt, and among real prompts it is the coordinate along the refusal direction (Section~\ref{sec:gradmeaning}).
 
 A rewording is a large perturbation, 13 to 17\% of the state for a one-word edit, that points almost anywhere. In the terms of equation~(\ref{eq:consistency}), the steepness is large, the size is large, and the cosine is under 0.01. Whether the product is enough to cross the threshold depends mostly on how far the original prompt was from the threshold, which is why the distance alone predicts flips about as well as anything computed from the gradient.
 
@@ -521,7 +559,7 @@ In the language of the original analogy, there is no instability in the sense of
 \item \textbf{The Gaussian model is approximate.} The shifts are not centred for the larger rewordings and their pooled distribution has heavy tails (Section~\ref{sec:testdef}). The version of the test without the Gaussian assumption gives the same conclusion.
 \item \textbf{Reduced samples.} The one-token sweep covered 43 of 60 planned prompts. The many-token perturbations used 16 prompts where 30 or more were planned, and the most amplified directions 7 where 10 were planned. The contrasts reported from them are a factor of 10 and hold for every prompt, but the ratios of many-token to one-token amplification are loose.
 \item \textbf{The heads are attributed, not tested.} See Section~\ref{sec:heads}.
-\item \textbf{How the work was done.} The code and analyses were written by AI sessions, one work package each. A separate planning session reviewed each package and recomputed its main numbers with independent code, and for the last package repeated three measurements on the model through a different code path. No one else has audited the code.
+\item \textbf{How the work was done.} The code and analyses were written by AI sessions, one work package each. A separate planning session reviewed each package and recomputed its main numbers with independent code, and for the last package repeated three measurements on the model through a different code path. The analysis of Section~\ref{sec:gradmeaning} was done by the planning session itself and has not been recomputed independently. No one else has audited the code.
 \item \textbf{No literature comparison.} The results have not been compared systematically with published work on prompt sensitivity or on the stability of transformer layers.
 \end{enumerate}
 
@@ -530,7 +568,8 @@ In the language of the original analogy, there is no instability in the sense of
 
 \begin{itemize}
 \item \textbf{Are the heads of Section~\ref{sec:heads} causal?} Swapping only those heads' reading between two wordings, against random sets of heads of the same number, would show it.
-\item \textbf{What sets the cosine in equation~(\ref{eq:consistency})?} The flip is decided by under 1\% of the displacement, and three attempts to predict its typical size from the original prompt have failed.
+\item \textbf{What sets the cosine in equation~(\ref{eq:consistency})?} The flip is decided by under 1\% of the displacement, and three attempts to predict its typical size from the original prompt have failed. Section~\ref{sec:gradmeaning} suggests looking at how far a rewording moves the state along the refusal direction, a single coordinate shared by all prompts.
+\item \textbf{What does the gradient read at the user's tokens?} Section~\ref{sec:gradmeaning} covers the template positions only. In the early layers most of the sensitivity is at the user's tokens, where the published feature dictionaries still work.
 \item \textbf{A feature-level description.} It needs dictionaries that work at the template positions of the chat model.
 \item \textbf{Does this hold for larger models and other behaviours?}
 \end{itemize}
