@@ -6,6 +6,7 @@
 \usepackage{booktabs}
 \usepackage{caption}
 \usepackage{microtype}
+\usepackage{cite}
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
 
 \graphicspath{{figures/}}
@@ -25,7 +26,7 @@
 \maketitle
 
 \begin{abstract}
-A small change in the wording of a request can flip a chat model between refusing and answering. We ask whether this happens because the model amplifies the change as it passes through the layers, and whether the flip can be predicted from a linearized description of the model. For Gemma-2-2b-it the answer to the first question is no. The difference between two wordings shrinks in relative size with depth, to 0.42 of its starting value when measured over all tokens. Random perturbations shrink in the same way, whether they are made at one token or at every token of the user's text. A narrow set of directions close to the gradient of the output is amplified about 10 to 40 times, but a real rewording has a component of at most 1\% along them. The answer to the second question is mixed. Once the two wordings are known, the gradient times the difference in internal state predicts the change in the output with correlation 0.92 and slope 0.99. From the original prompt alone, three predictors of how often rewording flips it do no better than the prompt's distance from the refusal threshold. The gradient is largely one direction shared by all prompts; on real prompts it reads the same coordinate as the known refusal direction (correlation 0.96), although the two vectors have a cosine of only 0.2 to 0.3. The picture that fits the measurements is a damped system with one steep direction: a rewording flips a prompt when the prompt is near the threshold and the rewording's small component along the steep direction is enough to cross it. The difference between two wordings is written into the positions that decide the output at layers 7, 11 and 13, mostly by about ten attention heads that are the same for every prompt; this last statement is an attribution and has not been tested by intervention.
+A small change in the wording of a request can flip a chat model between refusing and answering. We ask whether this happens because the model amplifies the change as it passes through the layers, and whether the flip can be predicted from a linearized description of the model. For Gemma-2-2b-it the answer to the first question is no. The difference between two wordings shrinks in relative size with depth, to 0.42 of its starting value when measured over all tokens. Random perturbations shrink in the same way, whether they are made at one token or at every token of the user's text. A narrow set of directions close to the gradient of the output is amplified about 10 to 40 times, but a real rewording has a component of at most 1\% along them. The answer to the second question is mixed. Once the two wordings are known, the gradient times the difference in internal state predicts the change in the output with correlation 0.92 and slope 0.99. From the original prompt alone, three predictors of how often rewording flips it do no better than the prompt's distance from the refusal threshold. The gradient is largely one direction shared by all prompts; on real prompts it reads the same coordinate as the known refusal direction (correlation 0.96), although the two vectors have a cosine of only 0.2 to 0.3. The picture that fits the measurements is the one known from adversarial examples, a damped system with one steep direction: a rewording flips a prompt when the prompt is near the threshold and the rewording's small component along the steep direction is enough to cross it. The difference between two wordings is written into the positions that decide the output at layers 7, 11 and 13, mostly by about ten attention heads that are largely the same across prompts; this last statement is an attribution and has not been tested by intervention.
 \end{abstract}
 
 \section{Question and approach}
@@ -42,6 +43,8 @@ This suggests two measurements and one test.
 \end{description}
 
 A feature-level version of the same description, in terms of interpretable dictionary features, was planned and could not be carried out (Section~\ref{sec:features}).
+
+Much of the picture that results is known in other settings. Section~\ref{sec:related} says which parts are published and which measurements appear to be new.
 
 \section{Definitions and methods}
 \label{sec:setup}
@@ -292,7 +295,7 @@ is the largest factor by which any infinitesimal perturbation at $P$ is stretche
 \label{eq:amp}
 \end{equation}
 
-\paragraph{A bound on collective modes.} A perturbation over $N$ positions is a set of one-token perturbations $v(t)$, and the map is linear, $Jv=\sum_t J_t\,v(t)$, with $J_t$ the Jacobian from position $t$ alone. Therefore
+\paragraph{A bound on collective modes.} The following is elementary linear algebra, stated to fix what ``more unstable'' can mean for a perturbation over many tokens. A perturbation over $N$ positions is a set of one-token perturbations $v(t)$, and the map is linear, $Jv=\sum_t J_t\,v(t)$, with $J_t$ the Jacobian from position $t$ alone. Therefore
 \begin{equation}
 \lVert Jv\rVert\le\sum_t\sigma_1(J_t)\,\lVert v(t)\rVert\le\Bigl(\sum_t\sigma_1(J_t)^2\Bigr)^{1/2}\lVert v\rVert
 \quad\Longrightarrow\quad
@@ -322,7 +325,7 @@ On a random sample of 600 pool prompts, the ranking probability of $m$ (Section~
 
 Near the threshold the match is looser. Over the 2{,}520 borderline prompts, 89\% of the completions that start with ``I'' are refusals, 8\% are answers and 4\% are unclear. 3\% of the refusals start with another token. For clearly harmful prompts there is no slippage: all 149 completions that start with ``I'' are refusals and no refusal starts otherwise.
 
-The model has a single \emph{refusal direction}, as reported for other chat models by Arditi et al.\ \cite{arditi}. Let $r$ be the mean of $h_{13}(t^*)$ over harmful prompts minus its mean over harmless ones, with $t^*$ the fourth template position, and $\hat r=r/\lVert r\rVert$. Removing the component along it, $h\to h-(\hat r\cdot h)\,\hat r$ at every layer and position, takes refusals of 100 harmful prompts from 96 to 0. Adding $r$ to the state at layer 13 at every position takes refusals of 100 harmless prompts from 2 to 100. Removing a random direction instead, isotropic or covariance-matched, leaves 88 to 98\% of the harmful prompts refused.
+One direction controls refusal in this model, as Arditi et al.\ \cite{arditi} reported for other chat models. We call it the \emph{refusal direction}. Later work finds several independent directions that mediate refusal and argues that the single-direction account is incomplete \cite{wollschlager}; nothing below depends on there being only one. Let $r$ be the mean of $h_{13}(t^*)$ over harmful prompts minus its mean over harmless ones, with $t^*$ the fourth template position, and $\hat r=r/\lVert r\rVert$. Removing the component along it, $h\to h-(\hat r\cdot h)\,\hat r$ at every layer and position, takes refusals of 100 harmful prompts from 96 to 0. Adding $r$ to the state at layer 13 at every position takes refusals of 100 harmless prompts from 2 to 100. Removing a random direction instead, isotropic or covariance-matched, leaves 88 to 98\% of the harmful prompts refused.
 
 \subsection{Rewording flips borderline prompts in proportion to their distance from the threshold}
 \label{sec:flips}
@@ -359,7 +362,7 @@ below 0.9 & 32\% & 25\% \\
 \end{tabular}
 \end{table}
 
-A full rephrasing changes $m$ by a median of 1.5, about twice the width of the transition, and its root mean square change is 3.0 (Table~\ref{tab:tiers}). The root mean square is well above the median for every kind, because a minority of rewordings move $m$ a great deal. For the prompts nearest the threshold, punctuation alone flips about one variant in ten. The flip rate falls with the distance from the threshold on both sides (Table~\ref{tab:cells}). 87 of the 120 prompts have both a refused and an answered completion among their rewordings.
+That small edits and paraphrases can change a model's answer, and its decision to refuse, is documented \cite{salinas,hughes,anonto}. The tables add rates against a calibrated distance from the threshold. A full rephrasing changes $m$ by a median of 1.5, about twice the width of the transition, and its root mean square change is 3.0 (Table~\ref{tab:tiers}). The root mean square is well above the median for every kind, because a minority of rewordings move $m$ a great deal. For the prompts nearest the threshold, punctuation alone flips about one variant in ten. The flip rate falls with the distance from the threshold on both sides (Table~\ref{tab:cells}). 87 of the 120 prompts have both a refused and an answered completion among their rewordings.
 
 \subsection{Perturbations and rewordings are damped}
 \label{sec:damped}
@@ -437,6 +440,8 @@ A cosine of 0.3 and a correlation of 0.96 are compatible because the states are 
 
 \paragraph{As a perturbation the gradient is about four times more effective.} To first order, a perturbation of relative size $\varepsilon$ at the single position $(13,t^*)$ along a unit vector $u$ changes $m$ by $\varepsilon\,|g\cdot u|\,\lVert h\rVert$. The median of $|g\cdot u|\,\lVert h\rVert$ over the 120 prompts is 52 along the gradient, 12 along $\hat r$, 1.8 along a covariance-matched random direction and 0.7 along an isotropic one. The refusal direction is therefore 6 to 7 times more effective than a typical direction of real variation, and the gradient 4 times more effective again, by using directions that real prompts do not explore.
 
+\paragraph{Relation to earlier work.} That refusal directions found by gradient-based optimization differ from the difference of means is reported in \cite{wollschlager}, and \cite{park} argue that Euclidean cosines between such directions mean little without an inner product that accounts for the statistics of the states, which is the point of the anisotropy argument above. What is added here is the direct measurement for the local gradient: its cosine with the difference of means, and the correlation of the two projections on real prompts.
+
 \paragraph{A stricter relation that does not hold.} The best linear read-out for separating two Gaussian classes with a common covariance $C$ is the difference of their means multiplied by the inverse covariance, $C^{-1}r$. If the model's read-out were that optimal discriminant, one would find $g\propto C^{-1}r$. This is not what is found: the cosine between $g$ and $C^{-1}r$, with $C$ the covariance of the pool states and a ridge term added for stability, is 0.02 to 0.05, at the level of random directions (0.015).
 
 \paragraph{Reading.} The gradient is a read-out with two parts. One part reads the refusal coordinate, which is where real prompts move. The larger part points where real prompts do not go, which is why a perturbation along the gradient is so effective and so unlike a rewording. A largely shared gradient also fits the negative result of Section~\ref{sec:test}: if the gradient is nearly the same vector for every prompt, a prompt's own gradient says little that distinguishes it from the others. That link has not been tested directly.
@@ -453,7 +458,7 @@ The difference between two wordings reaches the template positions between layer
 \label{fig:arrival}
 \end{figure}
 
-At layer 15, the linear prediction $L_{15}$ of~(\ref{eq:lin}) over the template positions has correlation 0.92 with the actual $\Dm$ and slope 0.99, and the right sign for 99\% of the pairs with $|\Dm|>0.5$ (Figure~\ref{fig:gdelta}). This holds for full rephrasings too, although they are two to five times larger than the range in which random perturbations respond linearly. Changes larger than about 3 fall away from the line.
+The linear prediction~(\ref{eq:lin}) is the estimate used in attribution patching for the effect of replacing one prompt's activations by another's \cite{kramar}, where it is known to fail when attention saturates or contributions cancel. What is measured here is how well it holds for real rewordings of increasing size. At layer 15, the linear prediction $L_{15}$ of~(\ref{eq:lin}) over the template positions has correlation 0.92 with the actual $\Dm$ and slope 0.99, and the right sign for 99\% of the pairs with $|\Dm|>0.5$ (Figure~\ref{fig:gdelta}). This holds for full rephrasings too, although they are two to five times larger than the range in which random perturbations respond linearly. Changes larger than about 3 fall away from the line.
 
 \begin{figure}[ht]
 \centering
@@ -502,7 +507,7 @@ The change in $m$ between two wordings was split by layer with~(\ref{eq:source})
 \item Layers 7, 11 and 13 have shares $w_\ell$ of 0.24, 0.19 and 0.15, together 57\% of the change, and layers 7 to 16 have 91\% (Figure~\ref{fig:layers}).
 \item The head shares add up to 0.83, so the first-order split accounts for 83\% of the change. Ten heads carry 63\% of that, and seven carry half (Figure~\ref{fig:heads}). In the notation layer.head they are led by 13.2, 11.1, 7.3, 11.6 and 7.0.
 \item These heads read the user's text and not the template tokens.
-\item They are the same for all four kinds of rewording and across prompts. Computed on two random halves of the 120 prompts, the ranking of heads agrees with rank correlation 0.88.
+\item They are largely the same for all four kinds of rewording and across prompts. Computed on two random halves of the 120 prompts, the ranking of heads agrees with rank correlation 0.88, and the ten leading heads carry at least half of the change for 68\% of the prompts.
 \item For punctuation and one-word edits, 44\% of what the heads read comes from the edited tokens and 57\% from unchanged later tokens, whose own state shifted because they attended to the edit in earlier layers.
 \end{itemize}
 
@@ -522,17 +527,19 @@ The change in $m$ between two wordings was split by layer with~(\ref{eq:source})
 
 The split by head is an attribution. No head was switched off or swapped, so these heads have not been shown to be necessary or sufficient for a flip.
 
+The mechanism is of a known kind. Attention heads that write to the refusal direction at the last token, and whose attention an adversarial suffix diverts from the instruction, were identified in \cite{arditi}; a suffix attack has been traced to the flow of information into the final template tokens \cite{bentov}; single heads have been scored for their effect on safety by ablation \cite{zhou}; and the template region has been argued to be where safety behaviour is anchored \cite{leong}. Those heads were found by other procedures and mostly in other models, so they cannot be assumed to be the ones found here. What is added is the split, by layer and head, of the difference between two wordings of the same request.
+
 \subsection{A feature-level description was not possible}
 \label{sec:features}
 
-Two kinds of published feature dictionary, both trained on the base model and not the chat model, were meant to give a description in terms of interpretable features.
+Two kinds of published feature dictionary, both trained on the base model and not the chat model, were meant to give a description in terms of interpretable features. Gemma Scope provides autoencoders trained on a chat model only for the larger 9B model \cite{gemmascope}.
 
 \begin{itemize}
 \item Sparse autoencoders (Gemma Scope \cite{gemmascope}, 16k features) reproduce 11 to 15\% of the prompt-to-prompt variation at the template positions, against 68 to 76\% on the user's text.
 \item With transcoders, 52\% of the influence on the output is unexplained for the chat model, against 26\% for the base model on the same prompts. Nearly all of the gap is at the template positions.
 \end{itemize}
 
-The failure is at the positions where the refusal decision is made and comes from the chat fine-tuning. Kissane et al.\ \cite{kissane} report that a base-model autoencoder fine-tuned on chat activations can recover the lost fidelity; this was not attempted.
+The failure is at the positions where the refusal decision is made. For the transcoders the comparison with the base model shows that it comes with the chat fine-tuning. For the autoencoders the same check on the base model was not run, so their failure could also come from template tokens being rare in their training data. Kissane et al.\ \cite{kissane} fine-tuned a base-model autoencoder on chat-model activations for Mistral-7B and recovered the fidelity of a chat-trained one, and Yeo et al.\ \cite{yeo} report continuing the training of Gemma Scope autoencoders on chat data. Neither measured fidelity at the template positions, and no fine-tuning was attempted here.
 
 \section{Interpretation}
 \label{sec:interpretation}
@@ -545,7 +552,39 @@ The model is steep along a small number of directions, of which the gradient of 
 
 A rewording is a large perturbation, 13 to 17\% of the state for a one-word edit, that points almost anywhere. In the terms of equation~(\ref{eq:consistency}), the steepness is large, the size is large, and the cosine is under 0.01. Whether the product is enough to cross the threshold depends mostly on how far the original prompt was from the threshold, which is why the distance alone predicts flips about as well as anything computed from the gradient.
 
+This is the picture established for adversarial examples in image classifiers. A model that is close to linear in a high-dimensional input has a few directions along which a small aligned perturbation has a large effect \cite{goodfellow}, while random noise must be larger by a factor of order the square root of the dimension to have the same effect \cite{fawzi}; a real change of the input is neither aligned nor random and mostly misses the steep directions. Stable regions of the residual stream, inside which the output hardly moves, have been described for language models \cite{janiak}. What this study adds is the measurement layer by layer, in relative size, for real rewordings and for refusal.
+
 In the language of the original analogy, there is no instability in the sense of generic perturbations growing with depth. There is one high-gain channel, and wording changes couple to it weakly and in a way that depends on the prompt.
+
+\section{Relation to published work}
+\label{sec:related}
+
+A literature check was made after the measurements, by web search (28 searches, 25 works read at least in abstract). Table~\ref{tab:related} gives its verdict for each main claim. No claim was found published in this setting, and most are partly known.
+
+\begin{table}[ht]
+\centering
+\caption{The main claims against published work. ``Partly known'' means a published result covers the idea or one half of it, but not the measurement or the setting here.}
+\label{tab:related}
+\small
+\begin{tabular}{p{0.40\textwidth}p{0.20\textwidth}p{0.30\textwidth}}
+\toprule
+Claim & Status & Closest work \\
+\midrule
+Typical perturbations and real rewordings shrink with depth; only directions near the gradient grow (Sections~\ref{sec:damped}, \ref{sec:amplified}) & partly known & \cite{goodfellow,fawzi,janiak} \\[4pt]
+Perturbations over many tokens stay well inside the $\sqrt N$ bound (Section~\ref{sec:amplified}) & apparently new as a measurement & none found \\[4pt]
+Linear response for real displacements of 20 to 30\% of the state (Section~\ref{sec:linear}) & partly known & \cite{kramar} \\[4pt]
+Nonlinear response along the gradient at 3\% (Section~\ref{sec:amplified}) & apparently new & \cite{janiak} \\[4pt]
+Flip rates by distance from the threshold; prompt-only predictors add nothing (Sections~\ref{sec:flips}, \ref{sec:test}) & partly known & \cite{salinas,hughes,anonto} \\[4pt]
+A few heads write the difference into the template positions (Section~\ref{sec:heads}) & partly known & \cite{arditi,bentov,zhou,leong} \\[4pt]
+The gradient is a shared direction that reads the refusal coordinate (Section~\ref{sec:gradmeaning}) & partly known & \cite{wollschlager,park} \\[4pt]
+Base-model dictionaries lose fidelity at the template positions (Section~\ref{sec:features}) & partly known & \cite{gemmascope,kissane,minder,yeo} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The overall picture, the kind of mechanism and the geometry of the two directions are therefore in print in some form. What was not found is the set of measurements: relative size against depth for real rewordings; perturbations over many tokens against the $\sqrt N$ bound; the linear range by direction; flip rates against a calibrated distance, with the negative result for predictors built from the prompt alone; the split by layer and head of the difference between two wordings; and the measured cosine and correlation of the gradient and the difference of means.
+
+``Not found'' is a weak statement here. The search used a web search engine and no citation index, and it was thinnest for the claim about many tokens. The works on dictionaries include crosscoders trained jointly on this model and its base \cite{minder} and Gemma Scope autoencoders trained further on chat data \cite{yeo}; whether any of them does better at the template positions has not been checked.
 
 \section{Limitations}
 \label{sec:limitations}
@@ -560,7 +599,7 @@ In the language of the original analogy, there is no instability in the sense of
 \item \textbf{Reduced samples.} The one-token sweep covered 43 of 60 planned prompts. The many-token perturbations used 16 prompts where 30 or more were planned, and the most amplified directions 7 where 10 were planned. The contrasts reported from them are a factor of 10 and hold for every prompt, but the ratios of many-token to one-token amplification are loose.
 \item \textbf{The heads are attributed, not tested.} See Section~\ref{sec:heads}.
 \item \textbf{How the work was done.} The code and analyses were written by AI sessions, one work package each. A separate planning session reviewed each package and recomputed its main numbers with independent code, and for the last package repeated three measurements on the model through a different code path. The analysis of Section~\ref{sec:gradmeaning} was done by the planning session itself and has not been recomputed independently. No one else has audited the code.
-\item \textbf{No literature comparison.} The results have not been compared systematically with published work on prompt sensitivity or on the stability of transformer layers.
+\item \textbf{The literature comparison is a web search.} Section~\ref{sec:related} rests on 28 searches without a citation index. Several of the cited works were read only in abstract, and no number is quoted from them.
 \end{enumerate}
 
 \section{Open questions}
@@ -574,7 +613,7 @@ In the language of the original analogy, there is no instability in the sense of
 \item \textbf{Does this hold for larger models and other behaviours?}
 \end{itemize}
 
-\begin{thebibliography}{9}
+\begin{thebibliography}{99}
 
 \bibitem{arditi}
 A.~Arditi, O.~Obeso, A.~Syed, D.~Paleka, N.~Panickssery, W.~Gurnee and N.~Nanda,
@@ -590,6 +629,76 @@ arXiv:2408.05147 (2024).
 C.~Kissane, R.~Krzyzanowski, A.~Conmy and N.~Nanda,
 ``SAEs (usually) Transfer Between Base and Chat Models,''
 AI Alignment Forum (2024).
+
+\bibitem{yeo}
+W.~J.~Yeo, N.~Prakash, C.~Neo, R.~K.-W.~Lee, E.~Cambria and R.~Satapathy,
+``Understanding Refusal in Language Models with Sparse Autoencoders,''
+arXiv:2505.23556 (2025).
+
+\bibitem{goodfellow}
+I.~J.~Goodfellow, J.~Shlens and C.~Szegedy,
+``Explaining and Harnessing Adversarial Examples,''
+arXiv:1412.6572 (2014).
+
+\bibitem{fawzi}
+A.~Fawzi, S.-M.~Moosavi-Dezfooli and P.~Frossard,
+``Robustness of classifiers: from adversarial to random noise,''
+arXiv:1608.08967 (2016).
+
+\bibitem{janiak}
+J.~Janiak, J.~Karwowski, C.~S.~Mangat, G.~Giglemiani, N.~Petrova and S.~Heimersheim,
+``Characterizing stable regions in the residual stream of LLMs,''
+arXiv:2409.17113 (2024).
+
+\bibitem{kramar}
+J.~Kram\'ar, T.~Lieberum, R.~Shah and N.~Nanda,
+``AtP*: An efficient and scalable method for localizing LLM behaviour to components,''
+arXiv:2403.00745 (2024).
+
+\bibitem{park}
+K.~Park, Y.~J.~Choe and V.~Veitch,
+``The Linear Representation Hypothesis and the Geometry of Large Language Models,''
+arXiv:2311.03658 (2023).
+
+\bibitem{wollschlager}
+T.~Wollschl\"ager, J.~Elstner, S.~Geisler, V.~Cohen-Addad, S.~G\"unnemann and J.~Gasteiger,
+``The Geometry of Refusal in Large Language Models: Concept Cones and Representational Independence,''
+arXiv:2502.17420 (2025).
+
+\bibitem{bentov}
+M.~Ben-Tov, M.~Geva and M.~Sharif,
+``Universal Jailbreak Suffixes Are Strong Attention Hijackers,''
+arXiv:2506.12880 (2025).
+
+\bibitem{zhou}
+Z.~Zhou et al.,
+``On the Role of Attention Heads in Large Language Model Safety,''
+arXiv:2410.13708 (2024).
+
+\bibitem{leong}
+C.~T.~Leong, Q.~Yin, J.~Wang and W.~Li,
+``Why Safeguarded Ships Run Aground? Aligned Large Language Models' Safety Mechanisms Tend to Be Anchored in The Template Region,''
+arXiv:2502.13946 (2025).
+
+\bibitem{salinas}
+A.~Salinas and F.~Morstatter,
+``The Butterfly Effect of Altering Prompts: How Small Changes and Jailbreaks Affect Large Language Model Performance,''
+arXiv:2401.03729 (2024).
+
+\bibitem{hughes}
+J.~Hughes et al.,
+``Best-of-N Jailbreaking,''
+arXiv:2412.03556 (2024).
+
+\bibitem{anonto}
+R.~A.~Anonto, M.~L.~A.~Nahiyan and M.~T.~Hassan,
+``How Semantically Stable Are LLM Refusals? Measuring Confusion in Local Safety Boundaries,''
+arXiv:2512.01037 (2025).
+
+\bibitem{minder}
+J.~Minder, C.~Dumas, C.~Juang, B.~Chugtai and N.~Nanda,
+``Overcoming Sparsity Artifacts in Crosscoders to Interpret Chat-Tuning,''
+arXiv:2504.02922 (2025).
 
 \bibitem{advbench}
 A.~Zou, Z.~Wang, N.~Carlini, M.~Nasr, J.~Z.~Kolter and M.~Fredrikson,
