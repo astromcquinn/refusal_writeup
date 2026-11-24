@@ -155,6 +155,19 @@ $R>1$ means the perturbation has grown relative to the state and $R<1$ that it h
 
 \paragraph{Finite and linearized.} The \emph{finite} gain comes from actually rerunning the model with $h_\ell+\delta$. The \emph{linearized} gain is the limit of an infinitesimal perturbation, $\delta'=J\,\delta$, where $J=\partial h_{\ell'}/\partial h_\ell$ is the Jacobian of the layers in between. The product $J\delta$ is computed exactly by forward-mode differentiation, without forming $J$. The two agree to a few percent at $\varepsilon\le 0.03$ for every direction except the gradient (Section~\ref{sec:amplified}).
 
+\paragraph{Deviation from linearity.} For a perturbation of size $\varepsilon$ along a fixed direction, made with both signs, the changes $\delta'(+\varepsilon)$ and $\delta'(-\varepsilon)$ of a later state separate into a part that is odd in $\varepsilon$ and a part that is even,
+\begin{equation}
+\delta'_{\rm odd}=\tfrac12\bigl[\delta'(+\varepsilon)-\delta'(-\varepsilon)\bigr],\qquad
+\delta'_{\rm even}=\tfrac12\bigl[\delta'(+\varepsilon)+\delta'(-\varepsilon)\bigr].
+\label{eq:oddeven}
+\end{equation}
+The linear response is in the odd part and the leading nonlinear (second-order) term is the even part. With $D=\delta'_{\rm odd}(\varepsilon_0)/\varepsilon_0$ the linear response per unit size, taken at the smallest size $\varepsilon_0=0.01$, the deviation from linearity at size $\varepsilon$ is
+\begin{equation}
+\nu(\varepsilon)=\frac{\lVert\delta'(\varepsilon)-\varepsilon D\rVert}{\lVert\varepsilon D\rVert},
+\label{eq:nu}
+\end{equation}
+and $\nu_m$ is the same quantity for the scalar $m$. Where second order dominates, $\nu\simeq\kappa\,\varepsilon$, and we quote $\kappa=\lVert\delta'_{\rm even}\rVert/(\varepsilon\,\lVert\delta'_{\rm odd}\rVert)$ at $\varepsilon=0.03$. The \emph{linear range} is the size at which $\nu$ reaches 0.3. To say how far a perturbation $\delta$ leaves the cloud of real states we use its Mahalanobis length $\sqrt{\delta^{\mathsf T}C^{-1}\delta/d}$, with $C$ the covariance of the states of the 5{,}311 pool prompts at that layer and position; a difference between two real states has a length of order 1 to 2 in these units.
+
 \paragraph{Directions.} With $u$ a unit vector in $\mathbb{R}^d$ and $c$ a constant that sets the total size $\varepsilon$:
 \begin{itemize}
 \item \emph{isotropic random:} $u=z/\lVert z\rVert$ with $z$ a standard Gaussian vector;
@@ -398,7 +411,7 @@ The gradient of $m$ is the exception in both experiments.
 \item[Growth.] A perturbation with $\varepsilon=0.03$ along the gradient over all the user's tokens reaches an all-token gain of 5 to 7 by layer 22 and ends at 3.3 to 4.5 (Figure~\ref{fig:collective}, blue). Its template gain at the last layer is 8 to 10, and 11 to 21 in the linearized limit.
 \item[The most amplified direction.] For 7 prompts the top singular vector of Section~\ref{sec:svd} was computed, with the user's text as the source and with the user's text and the template together. The relative amplification $\mathcal{A}$ of~(\ref{eq:amp}) is 13 to 38, depending on the starting layer and the source. The gradient direction reaches 30 to 95\% of that. A random direction over the same tokens reached 0.7\% of it in the one case checked.
 \item[Steepness.] Over all 120 prompts, the steepness $G_\ell$ of~(\ref{eq:G}) has a median of 320 to 490 at every layer from 0 to 15. A perturbation of 0.2\% of the state along the gradient therefore moves $m$ by 0.8, the width of the transition. Prompts in the half nearer the threshold are steeper than the others by 7 to 45\%, depending on the layer.
-\item[Saturation.] The response along the gradient is far from linear at the size of real rewordings: at $\varepsilon=0.1$ the template gain is a fifth to a third of its linearized value.
+\item[Saturation of the state.] The response of the state along the gradient is far from linear at the size of real rewordings: at $\varepsilon=0.1$ the template gain is a fifth to a third of its linearized value. The scalar $m$ stays closer to linear (Section~\ref{sec:linrange}).
 \item[Many tokens against one.] The gradient over all the user's tokens is 1.3 to 2.2 times as effective as the gradient at the single best token. The top singular value with the user's text as source is 1.7 to 2.3 times that of the most sensitive single token, and its singular vector has $N_{\rm eff}$ of 4 to 6 of a median 14 tokens. The bound~(\ref{eq:bound}) allows a factor $\sqrt N$; the measured factor is 0.45 to 0.7 of $\sqrt N$. The collective modes are therefore sums of a few one-token modes, and there is no separate collective instability.
 \end{description}
 
@@ -458,7 +471,7 @@ The difference between two wordings reaches the template positions between layer
 \label{fig:arrival}
 \end{figure}
 
-The linear prediction~(\ref{eq:lin}) is the estimate used in attribution patching for the effect of replacing one prompt's activations by another's \cite{kramar}, where it is known to fail when attention saturates or contributions cancel. What is measured here is how well it holds for real rewordings of increasing size. At layer 15, the linear prediction $L_{15}$ of~(\ref{eq:lin}) over the template positions has correlation 0.92 with the actual $\Dm$ and slope 0.99, and the right sign for 99\% of the pairs with $|\Dm|>0.5$ (Figure~\ref{fig:gdelta}). This holds for full rephrasings too, although they are two to five times larger than the range in which random perturbations respond linearly. Changes larger than about 3 fall away from the line.
+The linear prediction~(\ref{eq:lin}) is the estimate used in attribution patching for the effect of replacing one prompt's activations by another's \cite{kramar}, where it is known to fail when attention saturates or contributions cancel. What is measured here is how well it holds for real rewordings of increasing size. At layer 15, the linear prediction $L_{15}$ of~(\ref{eq:lin}) over the template positions has correlation 0.92 with the actual $\Dm$ and slope 0.99, and the right sign for 99\% of the pairs with $|\Dm|>0.5$ (Figure~\ref{fig:gdelta}). This holds for full rephrasings too; Section~\ref{sec:linrange} measures how far the linear range extends. Changes larger than about 3 fall away from the line.
 
 \begin{figure}[ht]
 \centering
@@ -470,6 +483,43 @@ The linear prediction~(\ref{eq:lin}) is the estimate used in attribution patchin
 For the one-to-one pairs the sum in~(\ref{eq:lin}) can be taken over $S$, the user's text included. It then gives the sign of $\Dm$ from layer 4 (92\% agreement) and its size from layers 12 to 15. It fails at layers 0 to 2, where a swapped token is a change of 80\% of its own state and first order does not apply. The linear description therefore starts only after the edit has been absorbed by the first few layers and cannot be run from the embeddings.
 
 Much of the effect lies along the refusal direction, as Section~\ref{sec:gradmeaning} leads one to expect. Across the 2{,}400 pairs, the change in the projection $\hat r\cdot h_{13}(t^*)$ correlates 0.82 with $\Dm$. This is from a first look during review and was not a planned measurement.
+
+\subsection{How far the linear range extends}
+\label{sec:linrange}
+
+The linear prediction works for rephrasings that displace the template state by 15 to 30\%, while the state responds nonlinearly to a 3\% perturbation along the gradient (Section~\ref{sec:amplified}). One explanation would be that the model is close to linear for displacements that stay inside the cloud of real states and nonlinear for those that leave it. We tested this and it is not supported.
+
+Perturbations were made at one template position (layer 13, position $t^*$) for 40 prompts, along 61 directions each, at sizes from 1\% to 100\% of the state and with both signs. The directions are principal directions of the pool states from the largest to the 2{,}048th, the gradient and its parts inside and outside the 32 largest principal directions, the refusal direction, random directions, differences between prompts, and the prompt's own rewordings. The response is the change of the state at the last layer and of $m$. A second site (layer 18, last position) gives the same picture.
+
+\begin{table}[ht]
+\centering
+\caption{Deviation from linearity by direction, at layer 13, position $t^*$ (medians over 40 prompts). $\kappa$ is the deviation of the last-layer state per unit relative size, the linear range is the size at which the deviation~(\ref{eq:nu}) reaches 0.3, and the last column is the Mahalanobis length of a perturbation of unit relative size. ``Top 32'' means the 32 largest principal directions; the first principal direction is close to the refusal direction.}
+\label{tab:linrange}
+\begin{tabular}{lccc}
+\toprule
+Direction & $\kappa$ & Linear range & Mahalanobis length \\
+\midrule
+Isotropic random & 1.5 & 0.20 & 34 \\
+Covariance-matched random & 1.7 & 0.19 & 3.5 \\
+Principal directions, 1st to 2{,}048th & 3.0, then 1.4 to 2.1 & 0.19 & 0.1 to 57 \\
+Real rewording & 1.8 & 0.18 & 10 \\
+Difference between two prompts & 2.1 & 0.15 & 3.2 \\
+Refusal direction & 3.0 & 0.12 & 0.3 \\
+Gradient, part inside the top 32 & 3.0 & 0.11 & 0.4 \\
+Gradient, the rest & 7.5 & 0.043 & 35 \\
+Gradient & 7.9 & 0.041 & 33 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{description}
+\item[Nonlinearity is set by relative size, not by distance from the cloud.] The deviation is proportional to $\varepsilon$ (slope 0.96 in a log-log fit). The criterion fixed before the measurement was that adding the Mahalanobis length to that fit should raise its $R^2$ by at least 0.2, with a coefficient comparable to that of $\varepsilon$. It raises $R^2$ from 0.936 to 0.939. Across the principal directions the Mahalanobis length varies 500-fold while $\kappa$ stays between 1.4 and 2.1 (Table~\ref{tab:linrange}).
+\item[A real rewording is no more linear than a random direction.] Its $\kappa$ is that of the random baselines. At its real size the deviation of the last-layer state is 0.06 for punctuation, 0.10 for one word, 0.29 for a rephrasing and 0.24 for a change of register or context, and random directions of the same sizes deviate as much.
+\item[$m$ is more linear than the state.] For the same rewordings the deviation $\nu_m$ of $m$ is 0.02, 0.03, 0.11 and 0.14. Over all directions its median is 0.02, 0.08 and 0.23 at $\varepsilon=0.03$, 0.1 and 0.3. Along the gradient at $\varepsilon=0.03$ it is 0.035, where the state deviates by 0.24. This is why the linear prediction of Section~\ref{sec:linear} holds for rephrasings: it is a prediction of $m$, which is within about 15\% of linear at their size.
+\item[What does depend on direction.] The linear range of the state is five times shorter along the gradient than along a random direction. The excess comes from the part of the gradient outside the largest principal directions, but an isotropic random direction lies just as far outside the cloud and has one of the smallest $\kappa$ in the table, while the refusal direction lies well inside it and has twice that. In a fit made after seeing these results, and therefore not a test, replacing the Mahalanobis length by the size of the linear response $\lVert D\rVert$ raises $R^2$ from 0.936 to 0.973: directions that the model amplifies more are also more nonlinear.
+\end{description}
+
+These are perturbations of a single position with the others held fixed, so they say nothing about nonlinearity that arises when many positions move together.
 
 \subsection{The flip probability is not predicted from the prompt alone}
 \label{sec:test}
@@ -573,7 +623,7 @@ Claim & Status & Closest work \\
 Typical perturbations and real rewordings shrink with depth; only directions near the gradient grow (Sections~\ref{sec:damped}, \ref{sec:amplified}) & partly known & \cite{goodfellow,fawzi,janiak} \\[4pt]
 Perturbations over many tokens stay well inside the $\sqrt N$ bound (Section~\ref{sec:amplified}) & apparently new as a measurement & none found \\[4pt]
 Linear response for real displacements of 20 to 30\% of the state (Section~\ref{sec:linear}) & partly known & \cite{kramar} \\[4pt]
-Nonlinear response along the gradient at 3\% (Section~\ref{sec:amplified}) & apparently new & \cite{janiak} \\[4pt]
+The linear range of the response, by direction and relative size (Section~\ref{sec:linrange}) & apparently new & \cite{janiak} \\[4pt]
 Flip rates by distance from the threshold; prompt-only predictors add nothing (Sections~\ref{sec:flips}, \ref{sec:test}) & partly known & \cite{salinas,hughes,anonto} \\[4pt]
 A few heads write the difference into the template positions (Section~\ref{sec:heads}) & partly known & \cite{arditi,bentov,zhou,leong} \\[4pt]
 The gradient is a shared direction that reads the refusal coordinate (Section~\ref{sec:gradmeaning}) & partly known & \cite{wollschlager,park} \\[4pt]
